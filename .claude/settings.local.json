@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \":*)",
+      "Bash(npm run:*)",
+      "Bash(find c:UsersuserDesktopNew_clonemf-backend-main -type f \\\\\\(-name *.env* -o -name package.json \\\\\\))"
+    ]
+  }
+}

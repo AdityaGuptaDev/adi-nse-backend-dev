@@ -1,0 +1,19 @@
+import { Sequelize } from "sequelize/types";
+
+let perm = '{\"1\":{\"view\":true,\"add\":false,\"edit\":false,\"delete\":true,\"disabled\":true},\"2\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"3\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"4\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"5\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"6\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"7\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"8\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"9\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"10\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"11\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"12\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"export\":true,\"disabled\":true},\"13\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"14\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"15\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"16\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"17\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true,\"disabled\":true},\"18\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"19\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"20\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"21\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"23\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"24\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"25\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"26\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"27\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"28\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"29\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"30\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"31\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"32\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"33\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"35\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"36\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"37\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"38\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"39\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"40\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"41\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"42\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"43\":{\"view\":true,\"add\":true,\"edit\":true,\"delete\":true},\"viewAll\":true,\"addAll\":true,\"editAll\":true,\"deleteAll\":true,\"disabled\":true}';
+
+
+const roles = [
+  { roleName: "Admin", userTypeId: 1, permission: perm, isActive: true },
+  { roleName: "Investor", userTypeId: 2, permission: perm, isActive: true },
+  { roleName: "RM", userTypeId: 3, permission: perm, isActive: true },
+  { roleName: "Partner", userTypeId: 4, permission: perm, isActive: true },
+  { roleName: "BC", userTypeId: 6, permission: perm, isActive: true },
+  // { id: 3, roleName: "Deparment Manager", permission:perm, isActive:1 },
+  // { id: 4, roleName: "Device Operator", permission:perm, isActive:1 },
+];
+
+export const seedRoles = async (sequelize: Sequelize) => {
+
+  return sequelize.getQueryInterface().bulkInsert("Role", roles);
+};

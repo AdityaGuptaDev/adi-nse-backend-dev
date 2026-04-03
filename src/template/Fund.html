@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <style>
+      @media print {
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          font-family: Helvetica !important;
+          font-size: 11px;
+          line-height: 18px;
+          margin: 0;
+          padding: 10px;
+        }
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          page-break-inside: auto;
+        }
+
+        thead {
+          display: table-header-group;
+        }
+
+        tbody {
+          display: table-row-group;
+        }
+
+        tr {
+          page-break-inside: avoid;
+          page-break-after: auto;
+        }
+
+        th,
+        td {
+          border: 1px solid #ccc;
+          padding: 6px;
+          text-align: left;
+          font-size: 12px;
+        }
+        th {
+          background-color: #f2f2f2;
+        }
+
+        .returnClass {
+          text-align: center;
+          vertical-align: middle;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <table>
+      <thead>
+        <tr>
+          <th rowspan="2">Scheme</th>
+          <th rowspan="2" style="text-align: center;">Morningstar Rating</th>
+          <th rowspan="2" style="text-align: center;">Nav</th>
+          <th rowspan="2" style="text-align: center;">AUM (Cr.)</th>
+          <th rowspan="2" style="text-align: center;">Exp. Ratio</th>
+          {{#if data.visibleColumnsCount}}
+          <th
+            colspan="{{data.visibleColumnsCount}}"
+            style="text-align: center; vertical-align: middle;"
+          >
+            Return
+          </th>
+          {{/if}} {{#if data.visibleColumns.return10y}}
+          <th rowspan="2" style="text-align: center;">Since Incep</th>
+          {{/if}}
+          <th rowspan="2" style="text-align: center;">Launch Date</th>
+        </tr>
+        <tr>
+          {{#if data.visibleColumns.return1day}}
+          <th style="text-align: center;">1D</th>
+          {{/if}} {{#if data.visibleColumns.return7days}}
+          <th style="text-align: center;">7D</th>
+          {{/if}} {{#if data.visibleColumns.return1month}}
+          <th style="text-align: center;">1M</th>
+          {{/if}} {{#if data.visibleColumns.return3months}}
+          <th style="text-align: center;">3M</th>
+          {{/if}} {{#if data.visibleColumns.return6months}}
+          <th style="text-align: center;">6M</th>
+          {{/if}} {{#if data.visibleColumns.return1y}}
+          <th style="text-align: center;">1Y</th>
+          {{/if}} {{#if data.visibleColumns.return2y}}
+          <th style="text-align: center;" >2Y</th>
+          {{/if}} {{#if data.visibleColumns.return3y}}
+          <th style="text-align: center;">3Y</th>
+          {{/if}} {{#if data.visibleColumns.return5y}}
+          <th style="text-align: center;">5Y</th>
+          {{/if}} {{#if data.visibleColumns.return7y}}
+          <th style="text-align: center;">7Y</th>
+          {{/if}} {{#if data.visibleColumns.return10y}}
+          <th style="text-align: center;">10Y</th>
+          {{/if}}
+        </tr>
+      </thead>
+      <tbody>
+        {{#each data.columnData}}
+        <tr>
+          <td>{{this.ms_fullname}}</td>
+          <td style="text-align: center;">{{this.SchemePerformances.[0].OverallRating}}</td>
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Nav}}</td>
+          <td style="text-align: right;">{{this.SchemePerformances.[0].AUM}}</td>
+          <td style="text-align: right;">{{this.net_expense_ratio}}</td>
+          {{#if ../data.visibleColumns.return1day}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Return1d}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return7days}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Return1w}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return1month}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Return1mth}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return3months}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Return3mth}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return6months}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Return6mth}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return1y}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Return1yr}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return2y}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Returns2yr}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return3y}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Returns3yr}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return5y}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Returns5yr}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return7y}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Returns7yr}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return10y}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].Returns10yr}}</td>
+          {{/if}} {{#if ../data.visibleColumns.return10y}}
+          <td style="text-align: right;">{{this.SchemePerformances.[0].ReturnSinceIncep}}</td>
+          {{/if}}
+          <td style="text-align: center;">{{this.inception_date}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+      <tbody></tbody>
+    </table>
+  </body>
+</html>
