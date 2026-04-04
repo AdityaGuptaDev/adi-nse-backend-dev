@@ -11,10 +11,11 @@ import {
   getAllARNList,
   updateARNData,
 } from "./arn-handler";
+import { dataWriteRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 
-router.get("/getAllARNList", tokenMiddleWare, async (req, res) => {
+router.get("/getAllARNList", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let allData: any = await getAllARNList(req.query);
     sendEncryptedResponse(res, allData, "Got all ARN List");
@@ -24,7 +25,7 @@ router.get("/getAllARNList", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.post("/addARNData", tokenMiddleWare, async (req, res) => {
+router.post("/addARNData", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const nameData = await checkARNData(req.body);
 
@@ -40,7 +41,7 @@ router.post("/addARNData", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.put("/updateARNData/:id", tokenMiddleWare, async (req, res) => {
+router.put("/updateARNData/:id", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const nameData = await checkARNData(req.body, req.params);
 
@@ -56,7 +57,7 @@ router.put("/updateARNData/:id", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.delete("/deleteARNData/:id", tokenMiddleWare, async (req, res) => {
+router.delete("/deleteARNData/:id", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let deleteData: any = await deleteARNData(req.params);
     sendEncryptedResponse(res, deleteData, "Data Deleted successfully");

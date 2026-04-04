@@ -16,12 +16,13 @@ import environment from "../../environment";
 import { generateExcel, printPDF } from "../../services/pdf-service";
 import { unlink } from "fs";
 import { convertToCrores, dateFormat, toFixedData, toFixedDataForReturn } from "../../utils/helper";
+import { dataReadRateLimit, exportRateLimit } from "../../middlewares/rateLimit";
 const config = (configs as { [key: string]: any })[environment];
 
 
 const router = express.Router();
 
-router.get("/getFundPickerData", tokenMiddleWare, async (req, res) => {
+router.get("/getFundPickerData", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         console.log(req.query, "req.queryreq.query")
         let gf: any = await getFundPickerData(req.query);
@@ -33,7 +34,7 @@ router.get("/getFundPickerData", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.get("/get-category-with-subCategory", tokenMiddleWare, async (req, res) => {
+router.get("/get-category-with-subCategory", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         let gcws: any = await getCategoryWithSubCategory(req.query);
         sendEncryptedResponse(res, gcws, "get data successfully");
@@ -43,7 +44,7 @@ router.get("/get-category-with-subCategory", tokenMiddleWare, async (req, res) =
     }
 });
 
-router.get("/get-nature-list", tokenMiddleWare, async (req, res) => {
+router.get("/get-nature-list", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         let gN: any = await getNatureList(req.query);
         sendEncryptedResponse(res, gN, "get data successfully");
@@ -52,7 +53,7 @@ router.get("/get-nature-list", tokenMiddleWare, async (req, res) => {
         serverError(res, error);
     }
 });
-router.get("/get-AMC", tokenMiddleWare, async (req, res) => {
+router.get("/get-AMC", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         let gAMC: any = await getAMC(req.query);
         sendEncryptedResponse(res, gAMC, "get data successfully");
@@ -63,7 +64,7 @@ router.get("/get-AMC", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/get-FundPicker-schemes-pdf-export", tokenMiddleWare, async (req, res) => {
+router.post("/get-FundPicker-schemes-pdf-export", exportRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         for (let data of req.body.exportData) {
@@ -133,7 +134,7 @@ router.post("/get-FundPicker-schemes-pdf-export", tokenMiddleWare, async (req, r
     }
 });
 
-router.post("/get-FundPicker-schemes-xlsx-export", tokenMiddleWare, async (req, res) => {
+router.post("/get-FundPicker-schemes-xlsx-export", exportRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         let uploadRoute: any = `${config.publicPath}/FundXLSX/`;
@@ -156,7 +157,7 @@ router.post("/get-FundPicker-schemes-xlsx-export", tokenMiddleWare, async (req, 
     }
 });
 
-router.post("/admin-filter-for-invester", tokenMiddleWare, async (req, res) => {
+router.post("/admin-filter-for-invester", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         let findData: any = await findAdminFilterForInvester();

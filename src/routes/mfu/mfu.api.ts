@@ -29,13 +29,14 @@ import path from "path";
 import { createTransaction, transactionCallback } from "../../services/mfu.transaction.service";
 import db from "../../db/core/control-db";
 import { apiRequest } from "../../services/apirequest.service";
+import { financialRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 
 //payezz api added by aditya
 
 
-router.get('/searchByCanPayEzz/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/searchByCanPayEzz/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -57,7 +58,7 @@ router.get('/searchByCanPayEzz/:can_id', tokenMiddleWare, async (req, res) => {
 
 //can master details devopled by Aditya Gupta
 
-router.get('/amc/:amc_id', tokenMiddleWare, async (req, res) => {
+router.get('/amc/:amc_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -78,7 +79,7 @@ router.get('/amc/:amc_id', tokenMiddleWare, async (req, res) => {
 
 //can master details devopled by Aditya Gupta
 
-router.get('/can/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/can/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -99,7 +100,7 @@ router.get('/can/:can_id', tokenMiddleWare, async (req, res) => {
 });
 
 //can bank detail table name-testing_mfu_bank_details
-router.get('/mfuBankDetails/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/mfuBankDetails/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -121,7 +122,7 @@ router.get('/mfuBankDetails/:can_id', tokenMiddleWare, async (req, res) => {
 
 
 //can bank detail table name-testing_mfu_bank_details
-router.get('/searchByCanIdMfuFolioDtl/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/searchByCanIdMfuFolioDtl/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -141,8 +142,8 @@ router.get('/searchByCanIdMfuFolioDtl/:can_id', tokenMiddleWare, async (req, res
 });
 
 
-//can all data from the joining concept 
-router.get('/viewCanDetails/:can_id', tokenMiddleWare, async (req, res) => {
+//can all data from the joining concept
+router.get('/viewCanDetails/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -161,7 +162,7 @@ router.get('/viewCanDetails/:can_id', tokenMiddleWare, async (req, res) => {
 });
 
 
-router.get('/isin/:pri_isin', tokenMiddleWare, async (req, res) => {
+router.get('/isin/:pri_isin', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -181,7 +182,7 @@ router.get('/isin/:pri_isin', tokenMiddleWare, async (req, res) => {
 });
 
 
-router.get('/isin/:pri_isin', tokenMiddleWare, async (req, res) => {
+router.get('/isin/:pri_isin', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -201,7 +202,7 @@ router.get('/isin/:pri_isin', tokenMiddleWare, async (req, res) => {
 });
 
 
-router.post('/morningstar', tokenMiddleWare, async (req, res) => {
+router.post('/morningstar', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -220,7 +221,7 @@ router.post('/morningstar', tokenMiddleWare, async (req, res) => {
 
 
 
-router.get("/generate-reference", tokenMiddleWare, async (req, res) => {
+router.get("/generate-reference", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const date = body?.date ? new Date(body.date) : new Date();
@@ -237,7 +238,7 @@ router.get("/generate-reference", tokenMiddleWare, async (req, res) => {
 
 //Create CAN
 
-router.post("/can-register", tokenMiddleWare, async (req, res) => {
+router.post("/can-register", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers
@@ -250,7 +251,7 @@ router.post("/can-register", tokenMiddleWare, async (req, res) => {
 });
 
 
-router.post("/can-bank-validation", tokenMiddleWare, async (req, res) => {
+router.post("/can-bank-validation", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -263,7 +264,7 @@ router.post("/can-bank-validation", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/can-fetch", tokenMiddleWare, async (req, res) => {
+router.post("/can-fetch", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -276,7 +277,7 @@ router.post("/can-fetch", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/can-folio-validation", tokenMiddleWare, async (req, res) => {
+router.post("/can-folio-validation", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -289,7 +290,7 @@ router.post("/can-folio-validation", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/can-validation", tokenMiddleWare, async (req, res) => {
+router.post("/can-validation", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -304,7 +305,7 @@ router.post("/can-validation", tokenMiddleWare, async (req, res) => {
 
 
 
-router.post("/fetch-utrn", tokenMiddleWare, async (req, res) => {
+router.post("/fetch-utrn", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -317,7 +318,7 @@ router.post("/fetch-utrn", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/inv-con-view", tokenMiddleWare, async (req, res) => {
+router.post("/inv-con-view", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -330,7 +331,7 @@ router.post("/inv-con-view", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/prn-validation", tokenMiddleWare, async (req, res) => {
+router.post("/prn-validation", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -343,7 +344,7 @@ router.post("/prn-validation", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/txn-auth-details", tokenMiddleWare, async (req, res) => {
+router.post("/txn-auth-details", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -356,7 +357,7 @@ router.post("/txn-auth-details", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/txn-history", tokenMiddleWare, async (req, res) => {
+router.post("/txn-history", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -369,7 +370,7 @@ router.post("/txn-history", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/txn-normal", tokenMiddleWare, async (req, res) => {
+router.post("/txn-normal", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         //console.log(body)
@@ -395,7 +396,7 @@ router.post("/txn-normal", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/txn-systematic", tokenMiddleWare, async (req, res) => {
+router.post("/txn-systematic", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -421,7 +422,7 @@ router.post("/txn-systematic", tokenMiddleWare, async (req, res) => {
 
 
 
-router.post("/txn-approval", tokenMiddleWare, async (req, res) => {
+router.post("/txn-approval", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -439,7 +440,7 @@ router.post("/txn-approval", tokenMiddleWare, async (req, res) => {
 
 
 
-router.post("/syst-cancellation", tokenMiddleWare, async (req, res) => {
+router.post("/syst-cancellation", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -452,7 +453,7 @@ router.post("/syst-cancellation", tokenMiddleWare, async (req, res) => {
         serverError(res, error);
     }
 });
-router.post("/wppay-eez", tokenMiddleWare, async (req, res) => {
+router.post("/wppay-eez", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         let response: any = await ApiFinTechSwpPayEezService(body);
@@ -464,7 +465,7 @@ router.post("/wppay-eez", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/inv-concent", tokenMiddleWare, async (req, res) => {
+router.post("/inv-concent", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
 
@@ -481,7 +482,7 @@ router.post("/inv-concent", tokenMiddleWare, async (req, res) => {
 
 //can master details devopled by Aditya Gupta
 
-router.get('/amc/:amc_id', tokenMiddleWare, async (req, res) => {
+router.get('/amc/:amc_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -502,7 +503,7 @@ router.get('/amc/:amc_id', tokenMiddleWare, async (req, res) => {
 
 //can master details devopled by Aditya Gupta
 
-router.get('/can/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/can/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -523,7 +524,7 @@ router.get('/can/:can_id', tokenMiddleWare, async (req, res) => {
 });
 
 //can bank detail table name-testing_mfu_bank_details
-router.get('/mfuBankDetails/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/mfuBankDetails/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -546,7 +547,7 @@ router.get('/mfuBankDetails/:can_id', tokenMiddleWare, async (req, res) => {
 
 
 //can bank detail table name-testing_mfu_bank_details
-router.get('/searchByCanIdMfuFolioDtl/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/searchByCanIdMfuFolioDtl/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -567,8 +568,8 @@ router.get('/searchByCanIdMfuFolioDtl/:can_id', tokenMiddleWare, async (req, res
 
 
 
-//can all data from the joining concept 
-router.get('/viewCanDetails/:can_id', tokenMiddleWare, async (req, res) => {
+//can all data from the joining concept
+router.get('/viewCanDetails/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -587,7 +588,7 @@ router.get('/viewCanDetails/:can_id', tokenMiddleWare, async (req, res) => {
 });
 
 //payezz api -Aditya Gupta - 09-07-2025
-router.get('/searchByCanPayEzz/:can_id', tokenMiddleWare, async (req, res) => {
+router.get('/searchByCanPayEzz/:can_id', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -608,7 +609,7 @@ router.get('/searchByCanPayEzz/:can_id', tokenMiddleWare, async (req, res) => {
 
 
 //payezz api -Aditya Gupta - 09-07-2025
-router.get('/portfolioValuationData', tokenMiddleWare, async (req, res) => {
+router.get('/portfolioValuationData', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const header = req.headers;
@@ -625,7 +626,7 @@ router.get('/portfolioValuationData', tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post('/portfolio/search', tokenMiddleWare, async (req, res) => {
+router.post('/portfolio/search', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const { pan, folio_no, scheme } = req.body;
 
@@ -643,7 +644,7 @@ router.post('/portfolio/search', tokenMiddleWare, async (req, res) => {
 });
 
 
-router.post('/investor/search', tokenMiddleWare, async (req, res) => {
+router.post('/investor/search', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const { pan, folio_no, scheme } = req.body;
         const results = await investorSearch({ pan, folio_no, scheme });
@@ -660,7 +661,7 @@ router.post('/investor/search', tokenMiddleWare, async (req, res) => {
 });
 
 //for mandate registration
-router.get('/MfUtilityApiLogin', tokenMiddleWare, async (req, res) => {
+router.get('/MfUtilityApiLogin', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         const results = await MfUtilityApiLogin();
@@ -675,7 +676,7 @@ router.get('/MfUtilityApiLogin', tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.get('/APIePayEezzService', tokenMiddleWare, async (req, res) => {
+router.get('/APIePayEezzService', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         console.log("Request Body :- ", req.query)
@@ -693,7 +694,7 @@ router.get('/APIePayEezzService', tokenMiddleWare, async (req, res) => {
 });
 
 
-router.get('/APIEPayEezzStatusService', tokenMiddleWare, async (req, res) => {
+router.get('/APIEPayEezzStatusService', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         console.log("Request Body :- ", req.query)
@@ -710,7 +711,7 @@ router.get('/APIEPayEezzStatusService', tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.get('/mandates', tokenMiddleWare, async (req, res) => {
+router.get('/mandates', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const filters = req.query; // e.g. ?investor_id=123&can_id=ABC
         const results = await getMandates(filters);
@@ -724,7 +725,7 @@ router.get('/mandates', tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post('/mandates', tokenMiddleWare, async (req, res) => {
+router.post('/mandates', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const filters = req.body; // e.g. { investor_id: 123, can_id: 'ABC' }
         const results = await getMandates(filters);
@@ -738,7 +739,7 @@ router.post('/mandates', tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/update-mandates", tokenMiddleWare, async (req, res) => {
+router.post("/update-mandates", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
         const id = req.query.id;
@@ -757,7 +758,7 @@ router.post("/update-mandates", tokenMiddleWare, async (req, res) => {
 
 //written by @Aditya Gupta
 //bank details can modification 
-router.post("/can-modification-bank", tokenMiddleWare, async (req, res) => {
+router.post("/can-modification-bank", financialRateLimit, tokenMiddleWare, async (req, res) => {
 
     try {
         const body = req.body;
@@ -776,7 +777,7 @@ router.post("/can-modification-bank", tokenMiddleWare, async (req, res) => {
 //code written by Aditya Gupta
 
 
-router.post("/SendServerImage", tokenMiddleWare, async (req, res) => {
+router.post("/SendServerImage", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         // const fileName = req.query.file as string;
         const filepath = path.join(__dirname, '..', '..', '..', 'src')
@@ -806,7 +807,7 @@ router.post("/SendServerImage", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.post("/transaction/callback", tokenMiddleWare, async (req, res) => {
+router.post("/transaction/callback", financialRateLimit, tokenMiddleWare, async (req, res) => {
     const transactionData = req.body;
 
     const response = await transactionCallback(transactionData)
@@ -814,7 +815,7 @@ router.post("/transaction/callback", tokenMiddleWare, async (req, res) => {
     console.log("Transaction callback received:", transactionData);
 })
 
-router.get('/investor-portfolio', tokenMiddleWare, async (req, res) => {
+router.get('/investor-portfolio', dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const filters = req.query; // e.g. ?investor_id=123&can_id=ABC
         const results = await getInvestorPortfolio(filters);
@@ -830,7 +831,7 @@ router.get('/investor-portfolio', tokenMiddleWare, async (req, res) => {
 
 
 //Added on dated 10-march-2026
-router.post('/bank-by-folio', async (req, res) => {
+router.post('/bank-by-folio', dataReadRateLimit, async (req, res) => {
     try {
         const { folio } = req.body;
 
@@ -857,7 +858,7 @@ router.post('/bank-by-folio', async (req, res) => {
 
 
 //added by rakesh sinha ond  dated 11-march-2026
-router.post('/scheme-by-name', async (req, res) => {
+router.post('/scheme-by-name', dataReadRateLimit, async (req, res) => {
     try {
         const { scheme_name } = req.body;
 

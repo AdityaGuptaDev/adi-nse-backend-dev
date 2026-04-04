@@ -7,6 +7,7 @@ import {
   getAllActiveMenu,
   getRolebyID,
 } from "../role/role-handler";
+import { dataWriteRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 // import { assignUserTypeId } from "../../db/handlers/assignUserType-handler";
 const { tokenMiddleWare } = prosesjwt;
@@ -14,7 +15,7 @@ const { tokenMiddleWare } = prosesjwt;
 /**
  * to get all menu list with permission
  */
-router.get("/getMenuPermissionList", tokenMiddleWare, async (req, res) => {
+router.get("/getMenuPermissionList", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     // get the menu list
     const menu = await getAllActiveMenu();
@@ -39,7 +40,7 @@ router.get("/getMenuPermissionList", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.post("/addMenuPermission", tokenMiddleWare,async (req, res) => {
+router.post("/addMenuPermission", dataWriteRateLimit, tokenMiddleWare,async (req, res) => {
   try {
     let updatedPermission: any = await addPermission(req.body);
     sendEncryptedResponse(res, updatedPermission, "Add permission Success");

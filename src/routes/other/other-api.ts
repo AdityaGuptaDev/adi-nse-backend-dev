@@ -3,11 +3,12 @@ import { alreadyExist, serverError, success } from "proses-response";
 import ErrorLogger from "../../db/core/logger/error-logger";
 import { decryptData } from "../../services/encryptDecrypt-service";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
+import { dataReadRateLimit } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 
 
-router.post("/convertData", tokenMiddleWare, async (req: any, res) => {
+router.post("/convertData", dataReadRateLimit, tokenMiddleWare, async (req: any, res) => {
   try {
     let data: any = decryptData(req.body.data);
     res.status(200).send(data);

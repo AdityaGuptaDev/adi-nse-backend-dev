@@ -8,6 +8,7 @@ import { serverError } from "proses-response";
 import { financialServiceDataPull, logInvestorRequest, mobileToAccount } from "./decentro-handler";
 import { getDecentroLog } from "../partner/partner-handler";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
+import { dataReadRateLimit } from "../../middlewares/rateLimit";
 
 // router.post("/mobile-to-account", async (req, res) => {
 //   try {
@@ -275,7 +276,7 @@ import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
 
 //code with log -
 
-router.post("/mobile-to-account", tokenMiddleWare, async (req, res) => {
+router.post("/mobile-to-account", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile_number, investor_id } = req.body;
 
@@ -390,7 +391,7 @@ console.log("mobile_number----",mobile_number);
 
 
 
-router.post("/financial_service_data_pull", tokenMiddleWare, async (req, res) => {
+router.post("/financial_service_data_pull", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile_number, name, investor_id } = req.body;
     const headers = req.headers; 
@@ -435,7 +436,7 @@ router.post("/financial_service_data_pull", tokenMiddleWare, async (req, res) =>
   }
 });
 
-router.post("/log-mobile-to-account", tokenMiddleWare, async (req, res) => {
+router.post("/log-mobile-to-account", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile_number, investor_id } = req.body;
 

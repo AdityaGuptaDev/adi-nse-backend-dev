@@ -31,9 +31,10 @@ import { MFUCanFillEezzService } from "../../services/mfu.service";
 import { ACCOUNT_TYPE } from "../../utils/constant";
 import { group } from "console";
 let { tokenMiddleWare } = prosesjwt;
+import { dataReadRateLimit, dataWriteRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
-router.post("/cart", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/cart", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const user_id = req?.user?.id;
 
@@ -52,7 +53,7 @@ router.post("/cart", tokenMiddleWare, async (req: any, res: any) => {
   }
 });
 
-router.post("/kyc-users", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/kyc-users", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const investor_id = req?.body?.investor_id;
 
@@ -81,7 +82,7 @@ router.post("/kyc-users", tokenMiddleWare, async (req: any, res: any) => {
   }
 });
 
-router.post("/partner-kyc-users", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/partner-kyc-users", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const investor_id = req?.body?.partnerId;
 
@@ -112,7 +113,7 @@ router.post("/partner-kyc-users", tokenMiddleWare, async (req: any, res: any) =>
 
 //Added by rakesh sinha on dated 07-Aug-2025
 
-router.get("/search/:id", async (req, res) => {
+router.get("/search/:id", dataReadRateLimit, async (req, res) => {
   try {
     const { id } = req.params;
     const results = await getInvestor(id);
@@ -131,7 +132,7 @@ router.get("/search/:id", async (req, res) => {
   }
 });
 
-router.post("/create-holding", async (req, res) => {
+router.post("/create-holding", dataWriteRateLimit, async (req, res) => {
   try {
     const investorId = req.body.investorId;
     const secondInvestorId = req.body.secondInvestorId || null;
@@ -196,7 +197,7 @@ router.post("/create-holding", async (req, res) => {
   }
 });
 
-router.get("/account-holding/:id", async (req, res) => {
+router.get("/account-holding/:id", dataReadRateLimit, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -218,7 +219,7 @@ router.get("/account-holding/:id", async (req, res) => {
   }
 });
 
-router.get("/investor-bank/:id", async (req, res) => {
+router.get("/investor-bank/:id", dataReadRateLimit, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -278,7 +279,7 @@ router.get(
 );
 
 
-router.get("/getAllFamilyHeadList", tokenMiddleWare, async (req, res) => {
+router.get("/getAllFamilyHeadList", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let allData: any = await getAllFamilyHeadList();
     sendEncryptedResponse(res, allData, "Got all family head list");
@@ -288,7 +289,7 @@ router.get("/getAllFamilyHeadList", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.get("/getAllPartnerList", tokenMiddleWare, async (req, res) => {
+router.get("/getAllPartnerList", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let allData: any = await getAllPartnerList();
     sendEncryptedResponse(res, allData, "Got all partner list");
@@ -299,7 +300,7 @@ router.get("/getAllPartnerList", tokenMiddleWare, async (req, res) => {
 });
 
 
-router.get("/getAllBcList", async (req, res) => {
+router.get("/getAllBcList", dataReadRateLimit, async (req, res) => {
   try {
     let allData: any = await getAllBcList();
     sendEncryptedResponse(res, allData, "Got all bc list");
@@ -309,7 +310,7 @@ router.get("/getAllBcList", async (req, res) => {
   }
 });
 
-router.get("/getAllRMList", tokenMiddleWare, async (req, res) => {
+router.get("/getAllRMList", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let allData: any = await getAllRMList();
     sendEncryptedResponse(res, allData, "Got all rm list");
@@ -319,7 +320,7 @@ router.get("/getAllRMList", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.put("/updateIvestor/:id", tokenMiddleWare, async (req, res) => {
+router.put("/updateIvestor/:id", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let updateData: any = await updateIvestor(req.body, req.params);
     updateData = JSON.parse(JSON.stringify(updateData[1][0]));
@@ -337,7 +338,7 @@ router.put("/updateIvestor/:id", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.get("/findFamilyHeadList/:id", tokenMiddleWare, async (req, res) => {
+router.get("/findFamilyHeadList/:id", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
 
     const results = await findFamilyHeadList(req.params);
@@ -349,7 +350,7 @@ router.get("/findFamilyHeadList/:id", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.delete("/deleteInvestor/:id", tokenMiddleWare, async (req, res) => {
+router.delete("/deleteInvestor/:id", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
 
     const results = await deleteInvestor(req.params);
@@ -361,7 +362,7 @@ router.delete("/deleteInvestor/:id", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.delete("/investorMappingUpdate/:id", tokenMiddleWare, async (req, res) => {
+router.delete("/investorMappingUpdate/:id", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
 
     let findInvestor: any = await findFamilyHeadList(req.params);

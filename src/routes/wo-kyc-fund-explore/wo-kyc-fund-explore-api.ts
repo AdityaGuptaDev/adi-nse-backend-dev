@@ -6,10 +6,11 @@ import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 let { tokenMiddleWare } = prosesjwt;
 import dbInstance from "../../db/core/control-db";
 import { getSchemeDataByWithoutKYC } from "./wo-kyc-fund-explore-handler";
+import { dataReadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
 
-router.get("/get-scheme-by-wo-kyc", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-scheme-by-wo-kyc", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let data: any = await getSchemeDataByWithoutKYC();

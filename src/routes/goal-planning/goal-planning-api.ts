@@ -11,11 +11,12 @@ import { MONTHS_IN_A_YEAR } from "../../utils/constant";
 import { findInvestorRiskCategory, getRiskCategoryById } from "../risk-profile/risk-profile-handler";
 import { getSubCategoryErrList } from "../scheme/scheme-handler";
 import { getRoundOFValue, getRoundValue } from "../../utils/helper";
+import { dataWriteRateLimit, dataReadRateLimit, publicRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
 
 //findAllRoles dropdown
-router.get("/getAllGoalType", tokenMiddleWare, async (req, res) => {
+router.get("/getAllGoalType", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         let allTypes: any = await getAllGoalType();
         sendEncryptedResponse(res, allTypes, "get GoalType");
@@ -26,7 +27,7 @@ router.get("/getAllGoalType", tokenMiddleWare, async (req, res) => {
 });
 
 
-router.post("/addGoalPlanAllocData", tokenMiddleWare, async (req, res) => {
+router.post("/addGoalPlanAllocData", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
     let t = await dbInstance.transaction();
 
     try {
@@ -80,7 +81,7 @@ router.post("/addGoalPlanAllocData", tokenMiddleWare, async (req, res) => {
     }
 });
 
-router.put("/updateGoalPlan/:id", tokenMiddleWare, async (req: any, res: any) => {
+router.put("/updateGoalPlan/:id", dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     let t = await dbInstance.transaction();
     try {
 
@@ -146,7 +147,7 @@ router.put("/updateGoalPlan/:id", tokenMiddleWare, async (req: any, res: any) =>
     }
 })
 
-router.delete("/deleteGoalPlan/:id", tokenMiddleWare, async (req: any, res: any) => {
+router.delete("/deleteGoalPlan/:id", dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     let t = await dbInstance.transaction();
 
     try {
@@ -174,7 +175,7 @@ router.delete("/deleteGoalPlan/:id", tokenMiddleWare, async (req: any, res: any)
     }
 })
 
-router.post("/calculator/goal", async (req: any, res: any) => {
+router.post("/calculator/goal", publicRateLimit, async (req: any, res: any) => {
     try {
 
         /**
@@ -563,7 +564,7 @@ export const getValuesForGoalPlanning = async (target_amount: any,
 
 
 
-router.post("/suggested-subcategory-schemes", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/suggested-subcategory-schemes", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         if (!req.body.subcategory_id) {
@@ -580,7 +581,7 @@ router.post("/suggested-subcategory-schemes", tokenMiddleWare, async (req: any, 
 })
 
 
-router.post("/addGoalPlanData", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/addGoalPlanData", dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     let t = await dbInstance.transaction();
 
     try {
@@ -622,7 +623,7 @@ router.post("/addGoalPlanData", tokenMiddleWare, async (req: any, res: any) => {
     }
 })
 
-router.post("/add-user-alloc", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/add-user-alloc", dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     let t = await dbInstance.transaction();
 
     try {
@@ -644,7 +645,7 @@ router.post("/add-user-alloc", tokenMiddleWare, async (req: any, res: any) => {
     }
 })
 
-router.get("/getAllGoalPalnList", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/getAllGoalPalnList", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         const user_id = req?.user?.id;
@@ -726,7 +727,7 @@ router.get("/getAllGoalPalnList", tokenMiddleWare, async (req: any, res: any) =>
 })
 
 
-router.put("/updateGoalPlanData/:id", tokenMiddleWare, async (req: any, res: any) => {
+router.put("/updateGoalPlanData/:id", dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     let t = await dbInstance.transaction();
 
     try {
@@ -802,7 +803,7 @@ router.put("/updateGoalPlanData/:id", tokenMiddleWare, async (req: any, res: any
     }
 })
 
-router.get("/getGoalPlanWiseSchemeData/:id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/getGoalPlanWiseSchemeData/:id", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let planData: any = await getGoalPlanWiseSchemeData(req.params);
@@ -842,7 +843,7 @@ router.get("/getGoalPlanWiseSchemeData/:id", tokenMiddleWare, async (req: any, r
     }
 })
 
-router.delete("/deleteGoalPlanData/:id", tokenMiddleWare, async (req: any, res: any) => {
+router.delete("/deleteGoalPlanData/:id", dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     let t = await dbInstance.transaction();
     try {
 
@@ -877,7 +878,7 @@ router.delete("/deleteGoalPlanData/:id", tokenMiddleWare, async (req: any, res: 
     }
 })
 
-router.get("/getGoalPlanData/:id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/getGoalPlanData/:id", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let goal: any = await getGoalPlanDataById(req.params);

@@ -27,9 +27,10 @@ import {
   getAllSchemeSubCategorybyId,
 } from "../scheme/scheme-handler";
 import { sub } from "date-fns";
+import { dataReadRateLimit, publicRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
-router.get("/get-top-performing-funds", async (req, res) => {
+router.get("/get-top-performing-funds", publicRateLimit, async (req, res) => {
   try {
     let allScheme: any = await getTopPerformingSchemeList();
     allScheme = JSON.parse(JSON.stringify(allScheme));
@@ -54,7 +55,7 @@ router.get("/get-top-performing-funds", async (req, res) => {
   }
 });
 
-router.get("/get-top-performing-schemes", tokenMiddleWare, async (req, res) => {
+router.get("/get-top-performing-schemes", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let getCategory: any = await getAllSchemeCategory();
     getCategory = JSON.parse(JSON.stringify(getCategory));
@@ -102,6 +103,7 @@ router.get("/get-top-performing-schemes", tokenMiddleWare, async (req, res) => {
 
 router.get(
   "/get-top-mutual-fund-catdata",
+  dataReadRateLimit,
   tokenMiddleWare,
   async (req, res) => {
     try {
@@ -159,6 +161,7 @@ router.get(
 
 router.get(
   "/get-mutual-fund-classes-scheme",
+  dataReadRateLimit,
   tokenMiddleWare,
   async (req, res) => {
     try {
@@ -195,7 +198,7 @@ router.get(
   }
 );
 
-router.get("/get-new-fund-offer-list", tokenMiddleWare, async (req, res) => {
+router.get("/get-new-fund-offer-list", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let getnewFund: any = await getNewFundOfferList(req.query);
     getnewFund = JSON.parse(JSON.stringify(getnewFund));
@@ -231,7 +234,7 @@ router.get("/get-new-fund-offer-list", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.get("/get-top-amc-list", tokenMiddleWare, async (req, res) => {
+router.get("/get-top-amc-list", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let amcList: any = await getAllAMCList();
     amcList = JSON.parse(JSON.stringify(amcList));
@@ -272,7 +275,7 @@ router.get("/get-top-amc-list", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.get("/get-top-fund-managers-list", tokenMiddleWare, async (req, res) => {
+router.get("/get-top-fund-managers-list", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let findAllManager: any = await getAllFundManagerList();
     findAllManager = JSON.parse(JSON.stringify(findAllManager));
@@ -327,6 +330,7 @@ router.get("/get-top-fund-managers-list", tokenMiddleWare, async (req, res) => {
 
 router.get(
   "/get-fund-manager-detail/:id",
+  dataReadRateLimit,
   tokenMiddleWare,
   async (req, res) => {
     try {
@@ -363,7 +367,7 @@ router.get(
   }
 );
 
-router.get("/get-scheme-by-amc-id/:id", tokenMiddleWare, async (req, res) => {
+router.get("/get-scheme-by-amc-id/:id", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let getCategory: any = await getAllSchemeCategory();
     getCategory = JSON.parse(JSON.stringify(getCategory));

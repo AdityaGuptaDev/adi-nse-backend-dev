@@ -26,11 +26,12 @@ import https from "https";
 import { CookieJar } from "tough-cookie";
 import { apiRequest } from "../../services/apirequest.service";
 import { AxiosRequestConfig } from "axios";
+import { financialRateLimit, exportRateLimit } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 const axios = require('axios');
 
-router.post('/ucc', async (req, res) => {
+router.post('/ucc', financialRateLimit, async (req, res) => {
     try {
         console.log("Received request body:", req.body);
         
@@ -197,7 +198,7 @@ router.post('/ucc', async (req, res) => {
 });
 
 //Ucc registrtation API-1
-router.post("/ucc-registration", async (req, res) => {
+router.post("/ucc-registration", financialRateLimit, async (req, res) => {
   try {
     const { mobile, userType } = req.body;
 
@@ -221,7 +222,7 @@ router.post("/ucc-registration", async (req, res) => {
 });
 
 // NSE Transaction API - Purchase/Redemption
-router.post("/transaction", async (req, res) => {
+router.post("/transaction", financialRateLimit, async (req, res) => {
   try {
     console.log("nside the transactional api");
     
@@ -254,7 +255,7 @@ router.post("/transaction", async (req, res) => {
 });
 
 // NSE Redemption Transaction API
-router.post("/redemption", async (req, res) => {
+router.post("/redemption", financialRateLimit, async (req, res) => {
   try {
     const { transaction_details } = req.body;
 
@@ -285,7 +286,7 @@ router.post("/redemption", async (req, res) => {
 });
 
 // NSE Switch Transaction API
-router.post("/switch", async (req, res) => {
+router.post("/switch", financialRateLimit, async (req, res) => {
   try {
     const { transaction_details } = req.body;
 
@@ -316,7 +317,7 @@ router.post("/switch", async (req, res) => {
 });
 
 // NSE XSIP Registration API
-router.post("/xsip-registration", async (req, res) => {
+router.post("/xsip-registration", financialRateLimit, async (req, res) => {
   try {
     const { reg_data } = req.body;
 
@@ -347,7 +348,7 @@ router.post("/xsip-registration", async (req, res) => {
 });
 
 // NSE SIP Registration API
-router.post("/sip-registration", async (req, res) => {
+router.post("/sip-registration", financialRateLimit, async (req, res) => {
   try {
     const { reg_data } = req.body;
 
@@ -378,7 +379,7 @@ router.post("/sip-registration", async (req, res) => {
 });
 
 // NSE STP Registration API
-router.post("/stp-registration", async (req, res) => {
+router.post("/stp-registration", financialRateLimit, async (req, res) => {
   try {
     const { reg_data } = req.body;
 
@@ -409,7 +410,7 @@ router.post("/stp-registration", async (req, res) => {
 });
 
 // NSE SWP Registration API
-router.post("/swp-registration", async (req, res) => {
+router.post("/swp-registration", financialRateLimit, async (req, res) => {
   try {
     const { reg_data } = req.body;
 
@@ -440,7 +441,7 @@ router.post("/swp-registration", async (req, res) => {
 });
 
 // NSE Order Cancellation API
-router.post("/order-cancellation", async (req, res) => {
+router.post("/order-cancellation", financialRateLimit, async (req, res) => {
   try {
     const { can_data } = req.body;
 
@@ -471,7 +472,7 @@ router.post("/order-cancellation", async (req, res) => {
 });
 
 // NSE STP Cancellation API
-router.post("/stp-cancellation", async (req, res) => {
+router.post("/stp-cancellation", financialRateLimit, async (req, res) => {
   try {
     const { can_data } = req.body;
 
@@ -502,7 +503,7 @@ router.post("/stp-cancellation", async (req, res) => {
 });
 
 // NSE Client Bank Details API
-router.post("/client-bank-details", async (req, res) => {
+router.post("/client-bank-details", financialRateLimit, async (req, res) => {
   try {
     const { bank_dtl } = req.body;
 
@@ -533,7 +534,7 @@ router.post("/client-bank-details", async (req, res) => {
 });
 
 // NSE Mandate Purchase API
-router.post("/mandate-purchase", async (req, res) => {
+router.post("/mandate-purchase", financialRateLimit, async (req, res) => {
   try {
     const { reg_data } = req.body;
 
@@ -564,7 +565,7 @@ router.post("/mandate-purchase", async (req, res) => {
 });
 
 // NSE Mandate Redemption API
-router.post("/mandate-redemption", async (req, res) => {
+router.post("/mandate-redemption", financialRateLimit, async (req, res) => {
   try {
     const { reg_data } = req.body;
 
@@ -595,7 +596,7 @@ router.post("/mandate-redemption", async (req, res) => {
 });
 
 // NSE Provisional Report API
-router.post("/provisional-report", async (req, res) => {
+router.post("/provisional-report", exportRateLimit, async (req, res) => {
   try {
     console.log("NSE provisional report request received", req.body);
 
@@ -617,7 +618,7 @@ router.post("/provisional-report", async (req, res) => {
 });
 
 // NSE Order Status API
-router.post("/order-status", async (req, res) => {
+router.post("/order-status", exportRateLimit, async (req, res) => {
   try {
     console.log("NSE order status request received", req.body);
 
@@ -639,7 +640,7 @@ router.post("/order-status", async (req, res) => {
 });
 
 // NSE Bank eLog Upload API
-router.post("/bank-elog-upload", async (req, res) => {
+router.post("/bank-elog-upload", financialRateLimit, async (req, res) => {
   try {
     console.log("NSE bank eLog upload request received", req.body);
 
@@ -661,7 +662,7 @@ router.post("/bank-elog-upload", async (req, res) => {
 });
 
 // NSE Member Fund Allocation API
-router.post("/member-fund-allocation", async (req, res) => {
+router.post("/member-fund-allocation", financialRateLimit, async (req, res) => {
   try {
     console.log("NSE member fund allocation request received", req.body);
 
@@ -683,7 +684,7 @@ router.post("/member-fund-allocation", async (req, res) => {
 });
 
 // NSE 2FA Report API
-router.post("/2fa-report", async (req, res) => {
+router.post("/2fa-report", exportRateLimit, async (req, res) => {
   try {
     console.log("NSE 2FA report request received", req.body);
 

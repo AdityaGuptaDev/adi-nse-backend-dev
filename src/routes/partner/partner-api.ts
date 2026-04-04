@@ -96,12 +96,13 @@ import e from "express";
 import { getUserByFindEmailOrMobile } from "../user/user-handler";
 import { partnerMobileToAccount } from "../decentro/decentro-handler";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
+import { kycRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
 
 let { generateToken } = prosesjwt;
 
 const router = express.Router();
 
-router.post("/registration-status", tokenMiddleWare, async (req, res) => {
+router.post("/registration-status", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -139,7 +140,7 @@ router.post("/registration-status", tokenMiddleWare, async (req, res) => {
 });
 
 //mobile-verification -
-router.post("/mobile-verification", tokenMiddleWare, async (req, res) => {
+router.post("/mobile-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -197,7 +198,7 @@ router.post("/mobile-verification", tokenMiddleWare, async (req, res) => {
   }
 });
 // ujjwal
-router.get("/rm/dashboard", tokenMiddleWare, async (req, res) => {
+router.get("/rm/dashboard", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     console.log("inside the api");
 
@@ -220,7 +221,7 @@ router.get("/rm/dashboard", tokenMiddleWare, async (req, res) => {
 });
 
 //OTP verification--
-router.post("/mobile-otp-verification", tokenMiddleWare, async (req, res) => {
+router.post("/mobile-otp-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile, userType, otp } = req.body;
 
@@ -279,7 +280,7 @@ router.post("/mobile-otp-verification", tokenMiddleWare, async (req, res) => {
 });
 
 //Adhaar Verification send otp
-router.post("/aadhaar-verification", tokenMiddleWare, async (req, res) => {
+router.post("/aadhaar-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
    //added the user type for handleing the partner and bc adhaar verification function 
     const { mobile, aadhaar,userTypeId } = req.body;
@@ -323,7 +324,7 @@ userReg = await bcAadhaarVerification(mobile, aadhaar);
 
 //otb verirification without mobile-
 
-router.post("/aadhaar-otp-verification", tokenMiddleWare, async (req, res) => {
+router.post("/aadhaar-otp-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile, aadhaar, otp, ref_id } = req.body;
 
@@ -361,7 +362,7 @@ router.post("/aadhaar-otp-verification", tokenMiddleWare, async (req, res) => {
 // Assuming you have imported your service
 // import { aadhaarOtpVerification } from "../services/partner-handler";
 
-router.post("/aadhaar-otp-verification", tokenMiddleWare, async (req, res) => {
+router.post("/aadhaar-otp-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile, aadhaar, otp, ref_id } = req.body;
 
@@ -397,7 +398,7 @@ router.post("/aadhaar-otp-verification", tokenMiddleWare, async (req, res) => {
 });
 
 //PAN verification lite-
-router.post("/pan-verification", tokenMiddleWare, async (req, res) => {
+router.post("/pan-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile, pan, name, dob,userTypeId } = req.body;
 console.log("userTypeId---",userTypeId);
@@ -433,7 +434,7 @@ console.log("userTypeId---",userTypeId);
 });
 
 //Bank verification process-
-router.post("/bank-account-verification", tokenMiddleWare, async (req, res) => {
+router.post("/bank-account-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile, bankAcNo, bankAcIfsc,userTypeId } = req.body;
 
@@ -487,7 +488,7 @@ if(userTypeId===6){
 
 //nismUpload
 
-router.post("/nism-upload", tokenMiddleWare, async (req, res) => {
+router.post("/nism-upload", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile, nismDoc, arn_no, euin_no } = req.body;
 
@@ -521,7 +522,7 @@ router.post("/nism-upload", tokenMiddleWare, async (req, res) => {
     serverError(res, error);
   }
 });
-router.post("/email-verification", tokenMiddleWare, async (req, res) => {
+router.post("/email-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -601,7 +602,7 @@ router.post("/email-verification", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.post("/email-otp-verification", tokenMiddleWare, async (req, res) => {
+router.post("/email-otp-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -648,7 +649,7 @@ if(userTypeId===6){
   }
 });
 
-router.post("/update-nominee", tokenMiddleWare, async (req, res) => {
+router.post("/update-nominee", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -708,7 +709,7 @@ router.post("/update-nominee", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.post("/complete-registration", tokenMiddleWare, async (req, res) => {
+router.post("/complete-registration", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -747,7 +748,7 @@ router.post("/complete-registration", tokenMiddleWare, async (req, res) => {
 });
 
 //save and continue button process
-router.post("/save_continue_adhaar_details", tokenMiddleWare, async (req, res) => {
+router.post("/save_continue_adhaar_details", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { name, adhaar, mobile, address, dob } = req.body;
 
@@ -791,7 +792,7 @@ router.post("/save_continue_adhaar_details", tokenMiddleWare, async (req, res) =
     serverError(res, error);
   }
 });
-router.post("/partner_user_created", tokenMiddleWare, async (req, res) => {
+router.post("/partner_user_created", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const {
       mobile,
@@ -900,7 +901,7 @@ if (isUserCreated === 0) {
 
 
 //user created for business correspondent 
-router.post("/bc_user_created", tokenMiddleWare, async (req, res) => {
+router.post("/bc_user_created", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const {
       mobile,
@@ -1009,7 +1010,7 @@ if (isUserCreated === 0) {
 
 
 
-router.post("/dashboard", tokenMiddleWare, async (req, res) => {
+router.post("/dashboard", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -1059,7 +1060,7 @@ router.post("/dashboard", tokenMiddleWare, async (req, res) => {
 });
 
 //code of ujjwal singh
-router.post("/getFolio", tokenMiddleWare, async (req, res) => {
+router.post("/getFolio", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { pan, scheme } = req.body;
 
@@ -1085,7 +1086,7 @@ router.post("/getFolio", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.post("/investmentGetFolio", tokenMiddleWare, async (req, res) => {
+router.post("/investmentGetFolio", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { pan } = req.body;
 
@@ -1111,7 +1112,7 @@ router.post("/investmentGetFolio", tokenMiddleWare, async (req, res) => {
 
 //details of investment ledger page through pan By Aditya Gupta-\
 
-router.post("/investmentGetFolioDtl", tokenMiddleWare, async (req, res) => {
+router.post("/investmentGetFolioDtl", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { pan } = req.body;
 
@@ -1137,7 +1138,7 @@ router.post("/investmentGetFolioDtl", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.post("/portfolio/details", tokenMiddleWare, async (req, res) => {
+router.post("/portfolio/details", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { pan_no } = req.body;
 
@@ -1163,7 +1164,7 @@ router.post("/portfolio/details", tokenMiddleWare, async (req, res) => {
 });
 
 //new api for Birthday
-router.get("/birthdays", tokenMiddleWare, async (req, res) => {
+router.get("/birthdays", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     console.log("Fetching all birthday records");
 
@@ -1187,7 +1188,7 @@ router.get("/birthdays", tokenMiddleWare, async (req, res) => {
 
 //changes done by aditya for the client list on the basis of partnerList,rm and admin
 
-router.get("/portfolioDetails/:loginId/:rmId/:userTypeid?", tokenMiddleWare, async (req, res) => {
+router.get("/portfolioDetails/:loginId/:rmId/:userTypeid?", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
       const { loginId, rmId, userTypeid } = req.params;
 
@@ -1208,7 +1209,7 @@ router.get("/portfolioDetails/:loginId/:rmId/:userTypeid?", tokenMiddleWare, asy
   }
 );
 
-router.post("/getData", tokenMiddleWare, async (req, res) => {
+router.post("/getData", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { foliochk, sch_name } = req.body;
 
@@ -1236,7 +1237,7 @@ router.post("/getData", tokenMiddleWare, async (req, res) => {
 
 //fetching the basic details for reports-Aditya Gupta code
 
-router.get("/getUserBasicDetails/:id", tokenMiddleWare, async (req, res) => {
+router.get("/getUserBasicDetails/:id", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -1260,7 +1261,7 @@ router.get("/getUserBasicDetails/:id", tokenMiddleWare, async (req, res) => {
 });
 
 ///new
-router.post("/portfolio/detailsList", tokenMiddleWare, async (req, res) => {
+router.post("/portfolio/detailsList", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { pan_no } = req.body;
 
@@ -1286,7 +1287,7 @@ router.post("/portfolio/detailsList", tokenMiddleWare, async (req, res) => {
 });
 
 //ankit
-router.post("/portfolio/detailsListAll", tokenMiddleWare, async (req, res) => {
+router.post("/portfolio/detailsListAll", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     console.log("Fetching all portfolio details");
 
@@ -1334,7 +1335,7 @@ router.post("/portfolio/detailsListAll", tokenMiddleWare, async (req, res) => {
 
 //Adming Dashboard Overview counts -
 
-router.get("/adming-counts", tokenMiddleWare, async (req, res) => {
+router.get("/adming-counts", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;

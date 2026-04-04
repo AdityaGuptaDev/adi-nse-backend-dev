@@ -9,11 +9,12 @@ import { questionType } from "../../utils/constant";
 import { addInvestorCartData, deleteInvestorCartItem, deleteInvestorMultiCartItem, findCartDataCount, findInvestorCartData, getAllInvestorCartData } from "./cart-handler";
 import { Op } from "sequelize";
 import { getUserByFindEmail } from "../user/user-handler";
+import { dataWriteRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
 
 //find by id
-router.post("/addfundExploreCardData", tokenMiddleWare, async (req: any, res) => {
+router.post("/addfundExploreCardData", dataWriteRateLimit, tokenMiddleWare, async (req: any, res) => {
     try {
 
         const body = req.body;
@@ -74,7 +75,7 @@ router.post("/addfundExploreCardData", tokenMiddleWare, async (req: any, res) =>
     }
 });
 
-router.get(`/getAllInvestorCartData`, tokenMiddleWare, async (req: any, res: any) => {
+router.get(`/getAllInvestorCartData`, dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         const query = req?.query?.data;
@@ -135,7 +136,7 @@ router.get(`/getAllInvestorCartData`, tokenMiddleWare, async (req: any, res: any
     }
 })
 
-router.delete(`/deleteCartItem/:id`, tokenMiddleWare, async (req: any, res: any) => {
+router.delete(`/deleteCartItem/:id`, dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         const { id } = req.params;
@@ -150,7 +151,7 @@ router.delete(`/deleteCartItem/:id`, tokenMiddleWare, async (req: any, res: any)
     }
 })
 
-router.post(`/deleteMultiCartItem`, tokenMiddleWare, async (req: any, res: any) => {
+router.post(`/deleteMultiCartItem`, dataWriteRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         const data = req.body;
@@ -165,7 +166,7 @@ router.post(`/deleteMultiCartItem`, tokenMiddleWare, async (req: any, res: any) 
     }
 })
 
-router.get("/findCartDataCount", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/findCartDataCount", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let user_id = req.user.id;

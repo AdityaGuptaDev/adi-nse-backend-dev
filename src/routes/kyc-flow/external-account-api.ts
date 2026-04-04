@@ -11,9 +11,10 @@ import {
   getAllExternalAccountList,
   updateExternalAccount,
 } from "./external-account-handler";
+import { dataWriteRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
-router.get("/getAllExternalAccountList", tokenMiddleWare, async (req, res) => {
+router.get("/getAllExternalAccountList", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let allData: any = await getAllExternalAccountList(req.query);
     sendEncryptedResponse(res, allData, "Got all External Account List");
@@ -23,7 +24,7 @@ router.get("/getAllExternalAccountList", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.post("/addExternalAccount", tokenMiddleWare, async (req, res) => {
+router.post("/addExternalAccount", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const nameData = await checkAccountData(req.body);
 
@@ -39,7 +40,7 @@ router.post("/addExternalAccount", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.put("/updateExternalAccount/:id", tokenMiddleWare, async (req, res) => {
+router.put("/updateExternalAccount/:id", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
 
     const nameData = await checkAccountData(req.body, req.params);

@@ -6,10 +6,11 @@ import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 import { printPDF } from "../../services/pdf-service";
 import { Menu } from "./menu-model";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
+import { publicRateLimit, dataWriteRateLimit, exportRateLimit } from "../../middlewares/rateLimit";
 const config = (configs as { [key: string]: any })[environment];
 const router = express.Router();
 
-router.post("/", tokenMiddleWare, async (req, res) => {
+router.post("/", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
    await Menu.bulkCreate(req.body);
    
@@ -20,7 +21,7 @@ router.post("/", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.get("/", async (req, res) => {
+router.get("/", publicRateLimit, async (req, res) => {
   try {
     let menu = await Menu.findAll({ attributes: ["id", "title", "link"] });
     // success(res, menu, "all menu");
@@ -30,7 +31,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.get("/create-pdf", async (req, res) => {
+router.get("/create-pdf", exportRateLimit, async (req, res) => {
   try {
     const pdfArgs = {
       template: "./src/template/newPdf2.html",

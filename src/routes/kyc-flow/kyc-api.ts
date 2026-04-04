@@ -38,6 +38,7 @@ import { BankAccountDetailHistory } from "./bank-account-detail-model-history";
 import { BankAccountDetail } from "./bank-account-detail-model";
 import { CANModificationLogs, CountryMaster, InvestorAccountHolding, InvestorBasicDetails, InvestorDeclaration, InvestorRegistration, NomineeDetail, NomineeGuardianRelationship, NomineeIdentity, NominineeRelationshipType } from "../../db/core/init-control-db";
 import { bcEmailOtpVerification } from "../partner/partner-handler";
+import { kycRateLimit } from "../../middlewares/rateLimit";
 
 let { tokenMiddleWare } = prosesjwt;
 const router = express.Router();
@@ -108,7 +109,7 @@ const handleDate = (dateStr: string) => {
 
 
 
-router.post("/checkPANStatus", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/checkPANStatus", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   let t = await dbInstance.transaction();
   try {
 
@@ -186,7 +187,7 @@ router.post("/checkPANStatus", tokenMiddleWare, async (req: any, res: any) => {
 
 })
 
-router.post("/checkPincode", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/checkPincode", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   let t = await dbInstance.transaction();
   try {
     const body = req.body;
@@ -272,7 +273,7 @@ router.post("/checkPincode", tokenMiddleWare, async (req: any, res: any) => {
 
 // })
 
-router.post("/checkKYCStatus", async (req: any, res: any) => {
+router.post("/checkKYCStatus", kycRateLimit, async (req: any, res: any) => {
   try {
     const body = req.body;
     const panNumberregex = /[A-z]{5}[0-9]{4}[A-z]{1}$/;
@@ -377,7 +378,7 @@ router.post("/checkKYCStatus", async (req: any, res: any) => {
   }
 });
 
-router.post("/kyc-otp-generate", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/kyc-otp-generate", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let body = req.body;
@@ -477,7 +478,7 @@ router.post("/kyc-otp-generate", tokenMiddleWare, async (req: any, res: any) => 
   }
 })
 
-router.post("/kyc-otp-verify", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/kyc-otp-verify", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let body = req.body;
@@ -540,7 +541,7 @@ router.post("/kyc-otp-verify", tokenMiddleWare, async (req: any, res: any) => {
   }
 })
 
-router.post("/create_kyc_investor", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/create_kyc_investor", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   let t = await dbInstance.transaction();
 
   try {
@@ -649,7 +650,7 @@ router.post("/create_kyc_investor", tokenMiddleWare, async (req: any, res: any) 
     serverError(res, error);
   }
 })
-router.post("/create_kyc_investor_sinzy", async (req: any, res: any) => {
+router.post("/create_kyc_investor_sinzy", kycRateLimit, async (req: any, res: any) => {
   const t = await dbInstance.transaction();
 
   try {
@@ -794,6 +795,7 @@ const onBoardInvestorinSignzy = async (investor_data: any) => {
 
 router.post(
   "/initiate_dlConsent",
+  kycRateLimit,
   async (req: any, res: any) => {
     try {
 
@@ -822,7 +824,7 @@ router.post(
   }
 );
 
-router.post("/investorSignzyLogin", async (req: any, res: any) => {
+router.post("/investorSignzyLogin", kycRateLimit, async (req: any, res: any) => {
   try {
 
     let body = req.body;
@@ -872,6 +874,7 @@ router.post("/investorSignzyLogin", async (req: any, res: any) => {
 
 router.post(
   "/initiate_dlConsent_sinzy",
+  kycRateLimit,
   async (req: any, res: any) => {
     try {
       const { mobile_number } = req.body;
@@ -927,6 +930,7 @@ router.post(
 
 router.post(
   "/getDLDetails",
+  kycRateLimit,
   async (req: any, res: any) => {
     try {
       const ConsentObj = {
@@ -1042,6 +1046,7 @@ router.post(
 
 router.post(
   "/updatePersonalDetail",
+  kycRateLimit,
   tokenMiddleWare,
   PANUploder.single("pan_image"),
   async (req: any, res: any) => {
@@ -1325,6 +1330,7 @@ router.post(
 
 router.post(
   "/uploadRelationshipProof",
+  kycRateLimit,
   tokenMiddleWare,
   RelationshipProof.single("relationship_proof_document"),
   async (req: any, res: any) => {
@@ -1346,6 +1352,7 @@ router.post(
 
 router.post(
   "/updateAddressDetail",
+  kycRateLimit,
   tokenMiddleWare,
   UploderFrontAddress.fields([{ name: "address_front_doc" }, { name: "address_back_doc" }]),
   async (req: any, res: any) => {
@@ -1599,6 +1606,7 @@ router.post(
 );
 router.post(
   "/scan-corr-aadhaar",
+  kycRateLimit,
   tokenMiddleWare,
   UploderFrontAddress.fields([{ name: "corr_aadhaar_front_doc" }, { name: "corr_aadhaar_back_doc" }]),
   async (req: any, res: any) => {
@@ -1732,6 +1740,7 @@ router.post(
 
 router.post(
   "/declaration",
+  kycRateLimit,
   tokenMiddleWare,
   async (req: any, res: any) => {
     try {
@@ -1873,6 +1882,7 @@ async function logBankAccountHistory(
 
 router.post(
   "/invester-bankdetails",
+  kycRateLimit,
   tokenMiddleWare,
   CancelCheque.single("cancelled_cheque"),
   async (req: any, res: any) => {
@@ -2062,6 +2072,7 @@ router.post(
 
 router.post(
   "/invester-bankdetails-for-Kyc-done",
+  kycRateLimit,
   tokenMiddleWare,
   CancelCheque.single("cancelled_cheque"),
   async (req: any, res: any) => {
@@ -2105,6 +2116,7 @@ router.post(
 
 router.post(
   "/investor-nominee",
+  kycRateLimit,
   tokenMiddleWare,
   async (req: any, res: any) => {
     try {
@@ -2207,6 +2219,7 @@ router.post(
 
 router.post(
   "/investor-signature",
+  kycRateLimit,
   tokenMiddleWare,
   async (req: any, res: any) => {
     try {
@@ -2271,6 +2284,7 @@ router.post(
 );
 router.post(
   "/investor-photo",
+  kycRateLimit,
   Photo.single("photo"),
 
   async (req: any, res: any) => {
@@ -2355,7 +2369,7 @@ router.post(
 
 router.post(
   "/investor-video",
-
+  kycRateLimit,
   Video.single("video"),
   tokenMiddleWare,
   async (req: any, res: any) => {
@@ -2512,7 +2526,7 @@ router.post(
 );
 
 
-router.get("/on-boarding-listings", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/on-boarding-listings", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const [gender, marital_status, mobile_relation, RelationshipPrimaryHolder, RelationshipProof, TaxStatus, BankProof, RelationshipTypes, NomineeGuardianRelationshipTypes, identity_type, bankList] = await Promise.all([
       getAllGender(),
@@ -2572,7 +2586,7 @@ router.get("/on-boarding-listings", tokenMiddleWare, async (req: any, res: any) 
   }
 })
 
-router.get("/get-bank-proof", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-bank-proof", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const bankProofList = await getAllBankProof();
     sendEncryptedResponse(res, bankProofList, "Bank proof types");
@@ -2584,7 +2598,7 @@ router.get("/get-bank-proof", tokenMiddleWare, async (req: any, res: any) => {
 
 
 
-router.post("/updateinvestor", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/updateinvestor", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const body = req.body;
     // change-kyc-step
@@ -2601,7 +2615,7 @@ router.post("/updateinvestor", tokenMiddleWare, async (req: any, res: any) => {
 
 
 
-router.get("/get-personal-info/:investor_id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-personal-info/:investor_id", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let investor_id = req.params.investor_id
@@ -2613,7 +2627,7 @@ router.get("/get-personal-info/:investor_id", tokenMiddleWare, async (req: any, 
     serverError(res, error);
   }
 })
-router.get("/get-investor-declaration/:investor_id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-investor-declaration/:investor_id", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     let investor_id = req.params.investor_id
 
@@ -2625,7 +2639,7 @@ router.get("/get-investor-declaration/:investor_id", tokenMiddleWare, async (req
   }
 })
 
-router.get("/get-address-info/:investor_id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-address-info/:investor_id", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let investor_id = req.params.investor_id
@@ -2638,7 +2652,7 @@ router.get("/get-address-info/:investor_id", tokenMiddleWare, async (req: any, r
   }
 })
 
-router.get("/get-bank-info/:investor_id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-bank-info/:investor_id", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let investor_id = req.params.investor_id
@@ -2652,7 +2666,7 @@ router.get("/get-bank-info/:investor_id", tokenMiddleWare, async (req: any, res:
   }
 })
 
-router.get("/get-nominee-info/:investor_id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-nominee-info/:investor_id", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let investor_id = req.params.investor_id
@@ -2666,7 +2680,7 @@ router.get("/get-nominee-info/:investor_id", tokenMiddleWare, async (req: any, r
   }
 })
 
-router.get("/get-personal-document-info/:investor_id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-personal-document-info/:investor_id", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let investor_id = req.params.investor_id;
@@ -2681,7 +2695,7 @@ router.get("/get-personal-document-info/:investor_id", tokenMiddleWare, async (r
   }
 })
 
-router.get("/investor-summary/:investor_id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/investor-summary/:investor_id", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let investor_id = req.params.investor_id
@@ -2700,7 +2714,7 @@ router.get("/investor-summary/:investor_id", tokenMiddleWare, async (req: any, r
   }
 })
 
-router.get("/get-fatca-dropdown", async (req: any, res: any) => {
+router.get("/get-fatca-dropdown", kycRateLimit, async (req: any, res: any) => {
   try {
     const [occupationList, incomeList, addresslist, annualIncome] = await Promise.all([
       OccupationMaster.findAll(),
@@ -2718,7 +2732,7 @@ router.get("/get-fatca-dropdown", async (req: any, res: any) => {
 })
 
 //code of Aditya for Nominee drop down --
-router.get("/get-nominee-dropdown", async (req: any, res: any) => {
+router.get("/get-nominee-dropdown", kycRateLimit, async (req: any, res: any) => {
   try {
     const [nomineeRelationShipType, nomineeIdentity, nomineeCountry, nominee_guardian_relationship_types] = await Promise.all([
       NominineeRelationshipType.findAll(),
@@ -2737,7 +2751,7 @@ router.get("/get-nominee-dropdown", async (req: any, res: any) => {
 
 
 
-router.post("/create-contract", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/create-contract", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     // let body = req.body.data
@@ -2760,7 +2774,7 @@ router.post("/create-contract", tokenMiddleWare, async (req: any, res: any) => {
 })
 
 
-router.post("/genarate-aadhar", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/genarate-aadhar", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     // let body = req.body.data
@@ -2782,7 +2796,7 @@ router.post("/genarate-aadhar", tokenMiddleWare, async (req: any, res: any) => {
 })
 
 
-router.post("/save_aaddher_PDF", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/save_aaddher_PDF", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     // let body = req.body.data
@@ -2823,7 +2837,7 @@ router.post("/save_aaddher_PDF", tokenMiddleWare, async (req: any, res: any) => 
 
   }
 })
-router.post("/execute_verification_engine", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/execute_verification_engine", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
 
     let body = req.body
@@ -2851,7 +2865,7 @@ router.post("/execute_verification_engine", tokenMiddleWare, async (req: any, re
 })
 
 
-router.post("/Signzy", async (req: any, res: any) => {
+router.post("/Signzy", kycRateLimit, async (req: any, res: any) => {
   try {
 
     let body = req.body
@@ -2871,7 +2885,7 @@ router.post("/Signzy", async (req: any, res: any) => {
     serverError(res, error);
   }
 })
-router.post("/generate-photo-capture-link", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/generate-photo-capture-link", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const { investor_id } = req.body;
 
@@ -2929,7 +2943,7 @@ router.post("/generate-photo-capture-link", tokenMiddleWare, async (req: any, re
   }
 })
 
-router.get("/validate-photo-capture-token/:token", async (req: any, res: any) => {
+router.get("/validate-photo-capture-token/:token", kycRateLimit, async (req: any, res: any) => {
   try {
     const { token } = req.params;
 
@@ -2968,7 +2982,7 @@ router.get("/validate-photo-capture-token/:token", async (req: any, res: any) =>
   }
 })
 
-router.post("/CAN-register", async (req: any, res: any) => {
+router.post("/CAN-register", kycRateLimit, async (req: any, res: any) => {
   try {
 
     let investorId = req.body.investor_id
@@ -3032,7 +3046,7 @@ router.post("/CAN-register", async (req: any, res: any) => {
 
 
 //bank detail modification for CAN---
-router.post("/CAN-modification", async (req: any, res: any) => {
+router.post("/CAN-modification", kycRateLimit, async (req: any, res: any) => {
   try {
     const investorId = req.body.investor_id;
 
@@ -3075,7 +3089,7 @@ router.post("/CAN-modification", async (req: any, res: any) => {
 });
 
 //Can Contact details update ----
-router.post("/CAN-modification-direct", async (req: any, res: any) => {
+router.post("/CAN-modification-direct", kycRateLimit, async (req: any, res: any) => {
   try {
     const { investor_id } = req.body;
     console.log("Direct CAN modification request for investor:", investor_id);
@@ -3130,7 +3144,7 @@ router.post("/CAN-modification-direct", async (req: any, res: any) => {
 
 //API to get the details of insertion,deletion for bank account details :-
 
-router.get("/getInvBankUpdate/:id", async (req, res) => {
+router.get("/getInvBankUpdate/:id", kycRateLimit, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -3151,7 +3165,7 @@ router.get("/getInvBankUpdate/:id", async (req, res) => {
     serverError(res, error);
   }
 });
-router.get("/compare-bankdetails/:investor_id", async (req: any, res: any) => {
+router.get("/compare-bankdetails/:investor_id", kycRateLimit, async (req: any, res: any) => {
   try {
     const { investor_id } = req.params;
 
@@ -3240,7 +3254,7 @@ router.get("/compare-bankdetails/:investor_id", async (req: any, res: any) => {
 
 //get the details for can update process by PAN---
 
-router.get("/gteCanDetailsInvestor/:pan", async (req, res) => {
+router.get("/gteCanDetailsInvestor/:pan", kycRateLimit, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -3265,6 +3279,7 @@ router.get("/gteCanDetailsInvestor/:pan", async (req, res) => {
 //can personal details update by Aditya Gupta
 router.post(
   "/updateEmailMobile",
+  kycRateLimit,
   async (req: any, res: any) => {
     const t = await dbInstance.transaction();
     try {
@@ -3372,6 +3387,7 @@ router.post(
 //can bank modification code-
 router.post(
   "/canUpdateInvestorBankDetails",
+  kycRateLimit,
   tokenMiddleWare,
   CancelCheque.single("bank_proof"), // optional cheque proof upload
   async (req: any, res: any) => {
@@ -3502,7 +3518,7 @@ router.post(
 );
 
 
-router.post("/can-investor-nominee", async (req: any, res: any) => {
+router.post("/can-investor-nominee", kycRateLimit, async (req: any, res: any) => {
   try {
     const body: any = req.body;
     const investorId = body.investor_id;
@@ -3665,7 +3681,7 @@ router.post("/can-investor-nominee", async (req: any, res: any) => {
 
 
 //investor complete registration by decentro-----
-router.post("/complete-registration", async (req, res) => {
+router.post("/complete-registration", kycRateLimit, async (req, res) => {
   try {
     const { partner, verification, fatca, nominees } = req.body;
 
@@ -3714,13 +3730,13 @@ router.post("/complete-registration", async (req, res) => {
 
 //added by rakesh sinha on dated 19-11-2025
 
-router.post("/investor_registration", tokenMiddleWare, async (req, res) => {
+router.post("/investor_registration", kycRateLimit, tokenMiddleWare, async (req, res) => {
   const body: any = req.body;
   const response = await updateInvestorRegistration(body, body.investor_id);
   sendEncryptedResponse(res, response, "complete-registration");
 });
 
-router.post("/update-address", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/update-address", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const body = req.body;
     console.log("Body == ", body);
@@ -3772,7 +3788,7 @@ router.post("/update-address", tokenMiddleWare, async (req: any, res: any) => {
   }
 });
 
-router.post("/update-basic-details", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/update-basic-details", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const body = req.body;
     const investor_id = body.investor_id;
@@ -3795,7 +3811,7 @@ router.post("/update-basic-details", tokenMiddleWare, async (req: any, res: any)
 });
 
 
-router.post("/get-holder-details", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-holder-details", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const body = req.body;
     const investor_id = body.investor_id;
@@ -3814,7 +3830,7 @@ router.post("/get-holder-details", tokenMiddleWare, async (req: any, res: any) =
   }
 });
 
-router.post("/update-additional-kyc", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/update-additional-kyc", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const body = req.body;
     const investor_id = body.investor_id;
@@ -3836,7 +3852,7 @@ router.post("/update-additional-kyc", tokenMiddleWare, async (req: any, res: any
 });
 
 
-router.post("/update-fatca", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/update-fatca", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const body = req.body;
     const investor_id = body.investor_id;
@@ -3855,7 +3871,7 @@ router.post("/update-fatca", tokenMiddleWare, async (req: any, res: any) => {
 });
 
 
-router.post("/update-bank-details", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/update-bank-details", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const { investor_id, bank_details } = req.body;
     const next_kyc_step = req.body.next_kyc_step;
@@ -3882,7 +3898,7 @@ router.post("/update-bank-details", tokenMiddleWare, async (req: any, res: any) 
   }
 });
 
-router.post("/update-nominee-details", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/update-nominee-details", kycRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
     const { next_kyc_step, last_kyc_step, investor_id, nominee_details } = req.body;
 
@@ -3916,7 +3932,7 @@ router.post("/update-nominee-details", tokenMiddleWare, async (req: any, res: an
   }
 });
 
-router.post("/CAN-creation", async (req: any, res: any) => {
+router.post("/CAN-creation", kycRateLimit, async (req: any, res: any) => {
   try {
 
     let investorId = req.body.investor_id

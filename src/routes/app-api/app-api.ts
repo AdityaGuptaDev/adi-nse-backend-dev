@@ -14,13 +14,14 @@ import { findAdminFilterForInvester } from "../scheme/fundpicker-handler";
 import { ROLE, USER_TYPE } from "../../utils/constant";
 import { getUserTypeFromID } from "../../utils/helper";
 let { tokenMiddleWare, generateToken } = prosesjwt;
+import { authRateLimit } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 
 
 
 //login endpoint
-router.post("/app-login", async (req, res) => {
+router.post("/app-login", authRateLimit, async (req, res) => {
     try {
         const { userName, password, fcmToken, deviceId, loginOTP } = req.body;
         let user: any = await getUserByFindEmailOrMobile(userName);

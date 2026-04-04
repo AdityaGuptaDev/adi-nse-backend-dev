@@ -5,12 +5,13 @@ import ErrorLogger from "../../db/core/logger/error-logger";
 import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 import { addBulkUserProfileDetail, addUserRiskProfile, deleteUserProfileDetail, getAllRiskCategory, getAllRiskQuestion, getRiskCategoryById, getRiskCategoryByTotalPoint, getRiskProfileInvestorByUserId, getUserRiskProfileById, updateUserRiskProfile } from "./risk-profile-handler";
 let { tokenMiddleWare } = prosesjwt;
+import { dataReadRateLimit, dataWriteRateLimit } from "../../middlewares/rateLimit";
 import dbInstance from "../../db/core/control-db";
 import { questionType } from "../../utils/constant";
 const router = express.Router();
 
 //findAll dropdown
-router.get("/getAllRiskQuestion", tokenMiddleWare, async (req, res) => {
+router.get("/getAllRiskQuestion", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         let allQuestion: any = await getAllRiskQuestion();
@@ -25,6 +26,7 @@ router.get("/getAllRiskQuestion", tokenMiddleWare, async (req, res) => {
 
 //post api
 router.post("/add-question-answer",
+    dataWriteRateLimit,
     tokenMiddleWare,
     async (req: any, res: any) => {
         let t = await dbInstance.transaction();
@@ -119,7 +121,7 @@ router.post("/add-question-answer",
     });
 
 //findAll dropdown
-router.get("/get-risk-profile-investor", tokenMiddleWare, async (req: any, res) => {
+router.get("/get-risk-profile-investor", dataReadRateLimit, tokenMiddleWare, async (req: any, res) => {
     try {
 
         let userId = req.user.id;
@@ -133,7 +135,7 @@ router.get("/get-risk-profile-investor", tokenMiddleWare, async (req: any, res) 
 });
 
 //find by id
-router.get("/get-risk-category-id/:id", tokenMiddleWare, async (req: any, res) => {
+router.get("/get-risk-category-id/:id", dataReadRateLimit, tokenMiddleWare, async (req: any, res) => {
     try {
 
         let data: any = await getRiskCategoryById(req.params);
@@ -146,7 +148,7 @@ router.get("/get-risk-category-id/:id", tokenMiddleWare, async (req: any, res) =
 });
 
 //find by id
-router.get("/get-allrisk-category", tokenMiddleWare, async (req: any, res) => {
+router.get("/get-allrisk-category", dataReadRateLimit, tokenMiddleWare, async (req: any, res) => {
     try {
 
         let data: any = await getAllRiskCategory();

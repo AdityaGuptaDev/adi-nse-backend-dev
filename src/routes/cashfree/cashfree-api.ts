@@ -9,12 +9,13 @@ import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 import prosesjwt from "proses-jwt";
 import { other, serverError } from "proses-response";
 import ErrorLogger from "../../db/core/logger/error-logger";
+import { kycRateLimit } from "../../middlewares/rateLimit";
 let { tokenMiddleWare } = prosesjwt;
 
 const router = express.Router();
 
 //adhaar verification without mobile parameter-
-router.post("/initiate-aadhaar-verification", tokenMiddleWare, async (req, res) => {
+router.post("/initiate-aadhaar-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { aadhaar } = req.body;
     if (!aadhaar) {
@@ -37,7 +38,7 @@ router.post("/initiate-aadhaar-verification", tokenMiddleWare, async (req, res) 
 });
 
 //otb verirification without mobile-
-router.post("/aadhaar-otp-verification", tokenMiddleWare, async (req, res) => {
+router.post("/aadhaar-otp-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { aadhaar, otp, ref_id } = req.body;
 
@@ -66,7 +67,7 @@ router.post("/aadhaar-otp-verification", tokenMiddleWare, async (req, res) => {
 });
 
 //PAN verification lite without mobile-
-router.post("/initiate-pan-verification", tokenMiddleWare, async (req, res) => {
+router.post("/initiate-pan-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { pan, name, dob } = req.body;
     // Validate required fields
@@ -123,7 +124,7 @@ router.post("/initiate-pan-verification", tokenMiddleWare, async (req, res) => {
 // });
 
 // changes by ankit
-router.post("/initiate-bank-account-verification",  tokenMiddleWare,async (req, res) => {
+router.post("/initiate-bank-account-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { bankAcNo, bankAcIfsc} = req.body;
 

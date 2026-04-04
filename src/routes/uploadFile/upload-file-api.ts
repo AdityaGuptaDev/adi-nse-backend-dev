@@ -5,13 +5,14 @@ import ErrorLogger from "../../db/core/logger/error-logger";
 import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 import { ImageUploder } from "../../services/multer";
 let { tokenMiddleWare } = prosesjwt;
+import { uploadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 import configs from "../../config/config";
 import environment from "../../environment";
 const config = (configs as { [key: string]: any })[environment];
 
 
-router.post("/uploadImages", tokenMiddleWare, ImageUploder.single('FILE'), async (req: any, res) => {
+router.post("/uploadImages", uploadRateLimit, tokenMiddleWare, ImageUploder.single('FILE'), async (req: any, res) => {
     try {
 
         console.log(req.body, req.file, req.files)

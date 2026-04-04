@@ -7,6 +7,7 @@ class ErrorLoggerClass extends BaseLogger {
 
   write(data: any) {
     this.logger.error(`[${new Date().toLocaleString()}]  ${JSON.stringify(data)}`);
+    console.log(`[${new Date().toLocaleString()}]  ${JSON.stringify(data)}`);
   }
 }
  

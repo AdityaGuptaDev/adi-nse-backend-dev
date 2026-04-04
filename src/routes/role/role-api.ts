@@ -16,8 +16,17 @@ import {
   updateRole,
 } from "./role-handler";
 import { v_role } from "./role-validation";
+import { dataWriteRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
 let { tokenMiddleWare } = prosesjwt;
 const router = express.Router();
+
+// Apply rate limiters at router level based on HTTP method
+router.use((req, res, next) => {
+  if (req.method === 'GET') {
+    return dataReadRateLimit(req, res, next);
+  }
+  return dataWriteRateLimit(req, res, next);
+});
 
 //findAllRoles dropdown
 router.get("/getRoles",

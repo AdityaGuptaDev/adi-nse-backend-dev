@@ -3,10 +3,11 @@ import { serverError, success } from "proses-response";
 import { getActivityLogsFilterWise } from "./activitylogs-handler";
 import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
+import { dataReadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
 //list-api
-router.get("/getActivityLogsFilterWise", tokenMiddleWare, async (req, res) => {
+router.get("/getActivityLogsFilterWise", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {      
       let allActivityLogs: any = await getActivityLogsFilterWise(req.query);
       sendEncryptedResponse(res, allActivityLogs, "Get all ActivityLogss");

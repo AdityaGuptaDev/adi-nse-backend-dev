@@ -4,12 +4,14 @@ import ErrorLogger from "../../db/core/logger/error-logger";
 import { serverError } from "proses-response";
 import { getBcList } from "./bc-handler";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
+import { dataReadRateLimit } from "../../middlewares/rateLimit";
 
 
 const router = express.Router();
 
 router.get(
   "/getBcList",
+  dataReadRateLimit,
   tokenMiddleWare,
   async (req: any, res: any) => {
     try {

@@ -4,11 +4,12 @@ import ErrorLogger from "../../db/core/logger/error-logger";
 import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 import { getAllCountry } from "./country-handler";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
+import { dataReadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
 
 //Get all countries for dropdown
-router.get("/getAllCountry", tokenMiddleWare, async (req, res) => {
+router.get("/getAllCountry", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
     try {
 
         let country: any = await getAllCountry();

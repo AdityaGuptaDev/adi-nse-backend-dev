@@ -28,6 +28,7 @@ import {
   getUserByMobileInvestor,
   getUserByInvestorId,
   getUserMappingPartnerToInvestor,
+  updateUser1,
 } from "./user-handler";
 
 import prosesjwt from "proses-jwt";
@@ -73,6 +74,7 @@ const sendSmsWithFallback = async (to: string, message: string) => {
     }
   }
 };
+import { authRateLimit, dataReadRateLimit, dataWriteRateLimit, debugRateLimit } from "../../middlewares/rateLimit";
 import { OtpDetail } from "./otp-detail-model";
 import { Users } from "./user-model";
 import { addUserBcData, addUserInvestorData, addUserPartnerData } from "../kyc-flow/kyc-handler";
@@ -88,28 +90,29 @@ import {
 import { UserType } from "./usertype-model";
 import { mobileToAccount, partnerMobileToAccount } from "../decentro/decentro-handler";
 import { date } from "zod";
+import { InvestorRegistration } from "../kyc-flow/user_basic_detail-model";
 
 const router = express.Router();
 
 //login endpoint
-router.post("/login", async (req, res) => {
+router.post("/login", authRateLimit, async (req, res) => {
   try {
     const { userName, password, loginOTP, userTypeId } = req.body;
-    // console.log("******************Inside /login **********************");
-    console.log("userName-", userName)
-    console.log("password-", password)
-    console.log("loginOTP-", loginOTP)
-    console.log("userTypeId-", userTypeId)
+     console.log("******************Inside /login **********************");
+    console.log("userName------------", userName)
+    console.log("password------------", password)
+    console.log("loginOTP------------", loginOTP)
+    console.log("userTypeId------------", userTypeId)
 
     let user: any = await getUserByFindEmailOrMobile(userName);
     user = JSON.parse(JSON.stringify(user));
-    // console.log("******************User from getUserByFindEmailOrMobile **********************");
+    console.log("******************User from getUserByFindEmailOrMobile **********************");
     console.log(user);
 
     let findFilterData: any = await findAdminFilterForInvester();
     findFilterData = JSON.parse(JSON.stringify(findFilterData));
 
-    //console.log("******************findFilterData from findAdminFilterForInvester **********************");
+    console.log("******************findFilterData from findAdminFilterForInvester **********************");
     console.log(findFilterData);
 
     // check weather user exist or not
@@ -133,12 +136,20 @@ router.post("/login", async (req, res) => {
           throw unauthorized(res, "Invalid Credentials");
         }
       }
+let otpToCompare;
 
-      if (loginOTP) {
-        if (user.loginOTP !== loginOTP) {
-          throw other(res, "Invalid OTP");
-        }
-      }
+if (user.mobileOTP && !user.loginOTP) {
+  // Sirf mobileOTP hai, loginOTP nahi — mobileOTP use karo
+  otpToCompare = user.mobileOTP;
+} else if (user.loginOTP) {
+  // loginOTP available hai — loginOTP use karo
+  otpToCompare = user.loginOTP;
+}
+
+if (!otpToCompare || otpToCompare !== loginOTP) {
+  console.log("invalid otp entered");
+  throw other(res, "Invalid OTP");
+}
       let userTypeData = await getUserMapping(user.id, req.body.userTypeId);
 
       // If userTypeId is provided, filter to only that user type
@@ -255,7 +266,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.post("/investor-login", async (req, res) => {
+router.post("/investor-login", authRateLimit, async (req, res) => {
   try {
     const { userName, userTypeId } = req.body;
 
@@ -336,7 +347,7 @@ router.post("/investor-login", async (req, res) => {
     );
     const result: any = {
       id: user.id,
-      email: user.email.toLowerCase(),
+      email: user.email?.toLowerCase() || null,
       mobile: user.mobile,
       roleId: user.roleId,
       userTypeData: meta,
@@ -391,7 +402,7 @@ router.post("/investor-login", async (req, res) => {
 });
 
 //partner-login from registeration process
-router.post("/partner-login", async (req, res) => {
+router.post("/partner-login", authRateLimit, async (req, res) => {
   try {
 
     const { userName, userTypeName } = req.body;
@@ -601,7 +612,7 @@ const compare = (one: any, two: any) => {
  */
 
 //findAllUser
-router.get("/getAllUser", tokenMiddleWare, async (req, res) => {
+router.get("/getAllUser", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let allUser: any = await getAllUser(req.query);
     allUser = JSON.parse(JSON.stringify(allUser));
@@ -614,7 +625,7 @@ router.get("/getAllUser", tokenMiddleWare, async (req, res) => {
   }
 });
 
-router.get("/userByID/:id", tokenMiddleWare, async (req, res) => {
+router.get("/userByID/:id", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let user = await getUserByid(req.params.id);
     sendEncryptedResponse(res, user, "got user by id");
@@ -626,7 +637,7 @@ router.get("/userByID/:id", tokenMiddleWare, async (req, res) => {
 });
 
 //addUser
-router.post("/addUser", tokenMiddleWare, async (req: any, res) => {
+router.post("/addUser", dataWriteRateLimit, tokenMiddleWare, async (req: any, res) => {
   let t = await dbInstance.transaction();
   try {
     let userID: any;
@@ -714,7 +725,7 @@ router.post("/addUser", tokenMiddleWare, async (req: any, res) => {
 });
 
 //updateUser
-router.put("/updateUser/:id", tokenMiddleWare, async (req: any, res) => {
+router.put("/updateUser/:id", dataWriteRateLimit, tokenMiddleWare, async (req: any, res) => {
   let t = await dbInstance.transaction();
   try {
     let userID = req.user.id;
@@ -764,7 +775,7 @@ router.put("/updateUser/:id", tokenMiddleWare, async (req: any, res) => {
 });
 
 //deleteUser
-router.delete("/deleteUser/:id", tokenMiddleWare, async (req, res) => {
+router.delete("/deleteUser/:id", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     console.log(req.params, "req.paramsreq.params");
 
@@ -912,7 +923,7 @@ export var setPermission = function (menu: any, perm: any) {
 };
 
 //forgot password
-router.post("/forgotPassword", async (req, res) => {
+router.post("/forgotPassword", authRateLimit, async (req, res) => {
   try {
     const { email } = req.body;
     let user = await UserData(req.body);
@@ -950,7 +961,7 @@ router.post("/forgotPassword", async (req, res) => {
 });
 
 //Update Password
-router.post("/changePassword", tokenMiddleWare, async (req: any, res) => {
+router.post("/changePassword", authRateLimit, tokenMiddleWare, async (req: any, res) => {
   try {
     let { oldPassword, newPassword } = req.body;
     let user: any = await Users.findOne({
@@ -982,12 +993,18 @@ router.post("/changePassword", tokenMiddleWare, async (req: any, res) => {
 //Added on 08-01-2025
 /************************Investor Registration ******************/
 
-router.post("/add-investor", async (req: any, res: any) => {
+router.post("/add-investor", authRateLimit, async (req: any, res: any) => {
 
   const t = await dbInstance.transaction();
 
   try {
-    const { mobile, userType, partnerId } = req.body;
+    const { mobile, userType, partnerId,parentId } = req.body;
+
+    console.log("mobile--",mobile);
+    console.log("userType--",userType);
+    console.log("partnerId--",partnerId);
+    console.log("parentId-____",parentId);
+
 
     if (!mobile || !userType) {
       return res.status(400).json({ message: "mobile and userType are required" });
@@ -1010,53 +1027,53 @@ router.post("/add-investor", async (req: any, res: any) => {
 console.log("userType---Investor---",userType);
 console.log("mobile------",mobile);
 
-    let user = await findUserByEmailOrMobile({ mobile });
-    user = user && JSON.parse(JSON.stringify(user));
+   let user = await findUserByEmailOrMobile({ mobile });
 
-    if (user) {
-      if (user.isMobileOTPVerified) {
-        return res.status(409).json({
-          message: "User already registered and verified",
-        });
-      }
+if (!user) {
+  return other(res, "User not found with this mobile number");
+}
 
-      await updateUser(
-        { mobileOTP, userTypeId },
-        user.id,
+user = JSON.parse(JSON.stringify(user)) as Users;
+console.log("User details--", user);
 
-      );
+const payload = {
+  mobile,
+  userTypeId,
+  mobileOTP,
+};
 
-      await t.commit();
-      await sendSmsWithFallback(mobile, msg);
+ // Update user table with mobileOTP
+await updateUser1({ loginOTP: mobileOTP }, user.id, t);
 
+// Create OTP detail record
+await OtpDetail.create(
+  { userId: user.id, kyc_mobile_otp: mobileOTP, mobile },
+  { transaction: t }
+);
+// console.log("parentId---",parentId);
+// // Create InvestorRegistration row
+// const existingInvestor = await InvestorRegistration.findOne({
+//   where: { reg_mobile: mobile },
+// });
 
-      /*await SmsService.sendSmsUsingNimbus(
-        mobile,
-        `Your OTP is ${mobileOTP}. Valid for 30 minutes.`
-      );*/
-
-      return sendEncryptedResponse(
-        res,
-        user,
-        "OTP resent. Please verify."
-      );
-    }
-
-
-    const payload = {
-      mobile,
-      userTypeId,
-      mobileOTP,
-
-    };
-
-    user = await addUser(payload, t);
-
-    await OtpDetail.create(
-      { userId: user.id, mobile },
-      { transaction: t }
-    );
-
+// if (!existingInvestor) {
+//   await InvestorRegistration.create(
+//     {
+//       user_id: user.id,
+//       reg_mobile: mobile,
+//       partner_id: parentId,
+//       is_kyc_complete: false,
+//       is_CAN_registered: false,
+//       isKYCDone: false,
+//       isDelete: false,
+//       poiConsent: false,
+//     },
+//     { transaction: t }
+//   );
+//   console.log("InvestorRegistration row created for mobile:", mobile);
+// } else {
+//   console.log("InvestorRegistration already exists for mobile:", mobile);
+// }
     await t.commit();
     await SmsService.sendSmsUsingNimbus(mobile, msg);
 
@@ -1076,10 +1093,10 @@ console.log("mobile------",mobile);
 
 });
 
-router.post("/verify-otp", async (req: any, res: any) => {
+router.post("/verify-otp", authRateLimit, async (req: any, res: any) => {
   const t = await dbInstance.transaction();
   try {
-    const { mobile, mobileOTP, userId, userTypeId } = req.body;
+    const { mobile, mobileOTP, userId, userTypeId, source } = req.body;
     //onst userId = req.params.id;
     const parentData = req.body.parentData;
 
@@ -1093,7 +1110,7 @@ router.post("/verify-otp", async (req: any, res: any) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    if (user.mobileOTP !== mobileOTP) {
+    if (user.loginOTP !== mobileOTP) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
@@ -1111,8 +1128,10 @@ router.post("/verify-otp", async (req: any, res: any) => {
     console.log("User finalized:", parentData);
 
 
+    const finalUserTypeId = source === "partner-add-investor" ? 2 : user.userTypeId;
+
     await handleUserFinalization(
-      user.userTypeId,
+      finalUserTypeId,
       savedUser,
       parentData?.userId || "",
       t
@@ -1224,7 +1243,7 @@ async function callMobileToAccount(user: any) {
 
 
 
-router.post("/register-user", async (req: any, res: any) => {
+router.post("/register-user", authRateLimit, async (req: any, res: any) => {
   let t = await dbInstance.transaction();
   try {
     let body = req.body;
@@ -1343,7 +1362,7 @@ if (userMapping) {
 });
 
 
-router.put("/register-otp/:id", async (req: any, res: any) => {
+router.put("/register-otp/:id", authRateLimit, async (req: any, res: any) => {
   let t = await dbInstance.transaction();
   try {
     let body = req.body;
@@ -1533,7 +1552,7 @@ router.put("/register-otp/:id", async (req: any, res: any) => {
   }
 });
 
-router.post("/login-otp", async (req: any, res: any) => {
+router.post("/login-otp", authRateLimit, async (req: any, res: any) => {
   try {
     let body = req.body;
     console.log(body, "body");
@@ -1609,7 +1628,7 @@ router.post("/login-otp", async (req: any, res: any) => {
   }
 });
 
-router.post("/resend-otp", async (req: any, res: any) => {
+router.post("/resend-otp", authRateLimit, async (req: any, res: any) => {
   try {
     let body = req.body;
 
@@ -1679,7 +1698,7 @@ router.post("/resend-otp", async (req: any, res: any) => {
   }
 });
 
-router.get("/getAllUserType", tokenMiddleWare, async (req, res) => {
+router.get("/getAllUserType", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let allUserType: any = await getAllUserType();
     sendEncryptedResponse(res, allUserType, "Get all user types");
@@ -1691,7 +1710,7 @@ router.get("/getAllUserType", tokenMiddleWare, async (req, res) => {
 });
 
 // Test endpoint to simulate failed login attempts
-router.post("/test-failed-login", async (req, res) => {
+router.post("/test-failed-login", debugRateLimit, async (req, res) => {
   try {
     const { userName, attempts = 6 } = req.body;
 
@@ -1713,7 +1732,7 @@ router.post("/test-failed-login", async (req, res) => {
 });
 
 // SIEM/Security Management endpoints
-router.post("/siem/stats", async (_req, res) => {
+router.post("/siem/stats", debugRateLimit, async (_req, res) => {
   try {
     const stats = securityMonitor.getStats();
     sendEncryptedResponse(res, stats, "Security statistics retrieved successfully");
@@ -1723,7 +1742,7 @@ router.post("/siem/stats", async (_req, res) => {
   }
 });
 
-router.post("/siem/events", async (_req, res) => {
+router.post("/siem/events", debugRateLimit, async (_req, res) => {
   try {
     const stats = securityMonitor.getStats();
     sendEncryptedResponse(res, stats, "Security events retrieved successfully");
@@ -1733,7 +1752,7 @@ router.post("/siem/events", async (_req, res) => {
   }
 });
 
-router.post("/siem/user-events", async (req, res) => {
+router.post("/siem/user-events", debugRateLimit, async (req, res) => {
   try {
     const { identifier } = req.body;
     if (!identifier) return res.status(400).json({ error: "Identifier is required" });
@@ -1745,7 +1764,7 @@ router.post("/siem/user-events", async (req, res) => {
   }
 });
 
-router.post("/siem/clear-user", async (req, res) => {
+router.post("/siem/clear-user", debugRateLimit, async (req, res) => {
   try {
     const { identifier } = req.body;
     if (!identifier) return res.status(400).json({ error: "Identifier is required" });
@@ -1757,7 +1776,7 @@ router.post("/siem/clear-user", async (req, res) => {
   }
 });
 
-router.post("/siem/test-email", async (req, res) => {
+router.post("/siem/test-email", debugRateLimit, async (req, res) => {
   try {
     const { testEmail } = req.body;
     if (!testEmail) return res.status(400).json({ error: "Test email is required" });
@@ -1769,7 +1788,7 @@ router.post("/siem/test-email", async (req, res) => {
   }
 });
 
-router.post("/siem/test-sms", async (req, res) => {
+router.post("/siem/test-sms", debugRateLimit, async (req, res) => {
   try {
     const { testPhone } = req.body;
     if (!testPhone) return res.status(400).json({ error: "Test phone is required" });
@@ -1783,7 +1802,7 @@ router.post("/siem/test-sms", async (req, res) => {
 });
 
 // Test endpoint to verify all logging systems
-router.post("/test-all-logging", async (req, res) => {
+router.post("/test-all-logging", debugRateLimit, async (req, res) => {
   try {
     console.log('[TEST] Testing all logging systems...');
     
@@ -1841,7 +1860,7 @@ router.post("/test-all-logging", async (req, res) => {
 });
 
 // Test endpoint to force error logging
-router.post("/test-error-logging", async (req, res) => {
+router.post("/test-error-logging", debugRateLimit, async (req, res) => {
   try {
     // Force an error to test logging
     throw new Error("Test error for logging verification");
@@ -1863,7 +1882,7 @@ router.post("/test-error-logging", async (req, res) => {
 });
 
 // Simple test endpoint to verify standardized decryption
-router.post("/test-standard-decrypt", async (req, res) => {
+router.post("/test-standard-decrypt", debugRateLimit, async (req, res) => {
   try {
     const { standardDecrypt } = require('../utils/standardEncryption');
     
@@ -1886,7 +1905,7 @@ router.post("/test-standard-decrypt", async (req, res) => {
 });
 
 // Temporary test endpoint for debugging PII decryption
-router.post("/test-pii-decryption", async (req, res) => {
+router.post("/test-pii-decryption", debugRateLimit, async (req, res) => {
   try {
     console.log('[TEST] Request body:', JSON.stringify(req.body, null, 2));
     
@@ -1961,7 +1980,7 @@ router.post("/test-pii-decryption", async (req, res) => {
 });
 
 // API to check user types for email/mobile
-router.post("/check-user-types", async (req, res) => {
+router.post("/check-user-types", authRateLimit, async (req, res) => {
   const { userName } = req.body;
   const ipAddress = req.ip || req.socket.remoteAddress || 'unknown';
   const userAgent = req.get('User-Agent') || 'unknown';
@@ -2007,7 +2026,7 @@ router.post("/check-user-types", async (req, res) => {
 });
 
 // API to get back office users for dropdown
-router.get("/getBackOfficeUsers", tokenMiddleWare, async (req, res) => {
+router.get("/getBackOfficeUsers", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const backOfficeUsers = await getBackOfficeUsers();
 
@@ -2024,7 +2043,7 @@ router.get("/getBackOfficeUsers", tokenMiddleWare, async (req, res) => {
 
 //added by rakesh sinha on datedd 07-01-2026
 
-router.get("/userByInvestorId/:investorId", tokenMiddleWare, async (req, res) => {
+router.get("/userByInvestorId/:investorId", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     let user = await getUserByInvestorId(req.params.investorId);
     sendEncryptedResponse(res, user, "got user by investor id");

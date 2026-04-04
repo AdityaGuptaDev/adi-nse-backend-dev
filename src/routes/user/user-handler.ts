@@ -220,6 +220,10 @@ export const updateUser = (body: any, params: any) => {
   return Users.update(body, { where: { id: params }, returning: true });
 };
 
+export const updateUser1 = (body: any, params: any, t?: any) => {
+  return Users.update(body, { where: { id: params }, returning: true, transaction: t });
+};
+
 // function to delete user from the db
 export const deleteUser = (params: any) => {
   return Users.destroy({

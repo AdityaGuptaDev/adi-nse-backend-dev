@@ -4,12 +4,13 @@ import { serverError } from "proses-response";
 import ErrorLogger from "../../db/core/logger/error-logger";
 import { sendEncryptedResponse } from "../../services/encryptResponse-service";
 import ConfigurationService from "../../services/configuration.service";
+import { publicRateLimit, dataWriteRateLimit } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 let { tokenMiddleWare } = prosesjwt;
 
 // ---------------------- GET ALL COLORS ----------------------
-router.get("/getColors", async (req: any, res: any) => {
+router.get("/getColors", publicRateLimit, async (req: any, res: any) => {
   try {
     const colors = await ConfigurationService.getAllColors();
     sendEncryptedResponse(res, colors, "Fetched all color options successfully");
@@ -20,7 +21,7 @@ router.get("/getColors", async (req: any, res: any) => {
 });
 
 // ---------------------- GET ALL SCHEMES ----------------------
-router.get("/getAllSchemes", async (req: any, res: any) => {
+router.get("/getAllSchemes", publicRateLimit, async (req: any, res: any) => {
   try {
     const data = await ConfigurationService.getAllSchemes();
     sendEncryptedResponse(res, data, "Fetched all schemes successfully");
@@ -31,7 +32,7 @@ router.get("/getAllSchemes", async (req: any, res: any) => {
 });
 
 // ---------------------- GET BC SCHEMES ----------------------
-router.get("/getBcSchemes", async (req: any, res: any) => {
+router.get("/getBcSchemes", publicRateLimit, async (req: any, res: any) => {
   try {
     const data = await ConfigurationService.getBcSchemes();
     sendEncryptedResponse(res, data, "Fetched all BC scheme data successfully");
@@ -42,7 +43,7 @@ router.get("/getBcSchemes", async (req: any, res: any) => {
 });
 
 // ---------------------- SAVE CONFIGURATION ----------------------
-router.post("/saveConfiguration", async (req: any, res: any) => {
+router.post("/saveConfiguration", dataWriteRateLimit, async (req: any, res: any) => {
   try {
     const configurations = req.body.configurations;
     await ConfigurationService.saveSchemeConfiguration(configurations);
@@ -54,7 +55,7 @@ router.post("/saveConfiguration", async (req: any, res: any) => {
 });
 
 // ---------------------- GET CONFIGURATIONS ----------------------
-router.get("/getConfigurations", async (req: any, res: any) => {
+router.get("/getConfigurations", publicRateLimit, async (req: any, res: any) => {
   try {
     const data = await ConfigurationService.getSavedConfigurations();
     sendEncryptedResponse(res, data, "Fetched configurations successfully");
@@ -65,7 +66,7 @@ router.get("/getConfigurations", async (req: any, res: any) => {
 });
 
 // ---------------------- UPDATE CONFIGURATION ----------------------
-router.put("/updateConfiguration/:id", async (req: any, res: any) => {
+router.put("/updateConfiguration/:id", dataWriteRateLimit, async (req: any, res: any) => {
   try {
     const id = parseInt(req.params.id);
     const configData = req.body;
@@ -78,7 +79,7 @@ router.put("/updateConfiguration/:id", async (req: any, res: any) => {
 });
 
 // ---------------------- DELETE CONFIGURATION ----------------------
-router.delete("/deleteConfiguration/:id", async (req: any, res: any) => {
+router.delete("/deleteConfiguration/:id", dataWriteRateLimit, async (req: any, res: any) => {
   try {
     const id = parseInt(req.params.id);
     await ConfigurationService.deleteConfiguration(id);
@@ -90,7 +91,7 @@ router.delete("/deleteConfiguration/:id", async (req: any, res: any) => {
 });
 
 // ---------------------- GET COLOR ALLOCATION ----------------------
-router.get("/getColorAllocation/:colorId", async (req: any, res: any) => {
+router.get("/getColorAllocation/:colorId", publicRateLimit, async (req: any, res: any) => {
   try {
     const colorId = parseInt(req.params.colorId);
     const allocation = await ConfigurationService.getColorAllocation(colorId);
@@ -102,7 +103,7 @@ router.get("/getColorAllocation/:colorId", async (req: any, res: any) => {
 });
 
 // ---------------------- GET ALL COLOR ALLOCATIONS ----------------------
-router.get("/getAllColorAllocations", async (req: any, res: any) => {
+router.get("/getAllColorAllocations", publicRateLimit, async (req: any, res: any) => {
   try {
     const allocations = await ConfigurationService.getAllColorAllocations();
     sendEncryptedResponse(res, allocations, "Fetched all color allocations successfully");
@@ -115,7 +116,7 @@ router.get("/getAllColorAllocations", async (req: any, res: any) => {
 // ---------------------- VEDANT RECOMMENDED FUNDS CRUD ----------------------
 
 // NEW: Get available funds from function (for modal)
-router.get("/vedantRecommended/available", async (req: any, res: any) => {
+router.get("/vedantRecommended/available", publicRateLimit, async (req: any, res: any) => {
   try {
     const data = await ConfigurationService.getAvailableVedantFunds();
     sendEncryptedResponse(res, data, "Fetched available Vedant funds successfully");
@@ -126,7 +127,7 @@ router.get("/vedantRecommended/available", async (req: any, res: any) => {
 });
 
 // Get saved funds from table
-router.get("/vedantRecommended/all", async (req: any, res: any) => {
+router.get("/vedantRecommended/all", publicRateLimit, async (req: any, res: any) => {
   try {
     const data = await ConfigurationService.getAllVedantRecommendedFunds();
     sendEncryptedResponse(res, data, "Fetched Vedant recommended funds successfully");
@@ -137,7 +138,7 @@ router.get("/vedantRecommended/all", async (req: any, res: any) => {
 });
 
 // Save funds to table
-router.post("/vedantRecommended/add", async (req: any, res: any) => {
+router.post("/vedantRecommended/add", dataWriteRateLimit, async (req: any, res: any) => {
   try {
     const payload = req.body.recommendedFunds || req.body;
     const userId = (req as any).user?.id || null;
@@ -150,7 +151,7 @@ router.post("/vedantRecommended/add", async (req: any, res: any) => {
 });
 
 // Update fund in table
-router.put("/vedantRecommended/update/:id", async (req: any, res: any) => {
+router.put("/vedantRecommended/update/:id", dataWriteRateLimit, async (req: any, res: any) => {
   try {
     const id = parseInt(req.params.id);
     const userId = (req as any).user?.id || null;
@@ -164,7 +165,7 @@ router.put("/vedantRecommended/update/:id", async (req: any, res: any) => {
 });
 
 // Delete fund from table (soft delete)
-router.delete("/vedantRecommended/delete/:id", async (req: any, res: any) => {
+router.delete("/vedantRecommended/delete/:id", dataWriteRateLimit, async (req: any, res: any) => {
   try {
     const id = parseInt(req.params.id);
     const userId = (req as any).user?.id || null;

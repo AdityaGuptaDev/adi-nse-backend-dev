@@ -5,11 +5,12 @@
 
 import express, { Request, Response } from 'express';
 import { siemLogger } from '../../services/simple-siem.service';
+import { publicRateLimit } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 
 // Get security statistics
-router.get('/stats', async (req: Request, res: Response) => {
+router.get('/stats', publicRateLimit, async (req: Request, res: Response) => {
   try {
     const stats = siemLogger.getSecurityStats('24h');
     res.json({
@@ -26,7 +27,7 @@ router.get('/stats', async (req: Request, res: Response) => {
 });
 
 // Get security health status
-router.get('/health', async (req: Request, res: Response) => {
+router.get('/health', publicRateLimit, async (req: Request, res: Response) => {
   try {
     const stats = siemLogger.getSecurityStats('24h');
     const hasStats = stats !== null && typeof stats === 'object';

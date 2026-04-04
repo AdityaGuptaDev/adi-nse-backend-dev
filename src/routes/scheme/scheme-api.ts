@@ -9,12 +9,13 @@ import { questionType } from "../../utils/constant";
 import { findAnnualReportTurnoveRatioData, findHoldingTypeData, findMutualHoldingTypeData, findMutualRelatedSchemeData, findPBRatioData, findPERatioData, findRelatedSchemeData, findReturnAVGSchemeData, findSchemeHoldingData, getAllSchemeByAMCId, getAllSchemeByISIN, getAllSchemeCategory, getAllSchemeSubCategorybyId, getFundManagerDataById, getFundManagerDataBySchemeId, getRatioSchemeData, getSchemeDataById, getSchemeDataByManager, getSchemeHistoricalInceptiionData, getSchemeHistoricalNavData, getSchemeSinceInceptionData } from "./scheme-handler";
 import { endOfMonth, format, parse, parseISO, subMonths } from "date-fns";
 import { dateFormat } from "../../utils/helper";
+import { dataReadRateLimit } from "../../middlewares/rateLimit";
 const router = express.Router();
 
 
 
 //find by id
-router.get("/get-allscheme-category", tokenMiddleWare, async (req: any, res) => {
+router.get("/get-allscheme-category", dataReadRateLimit, tokenMiddleWare, async (req: any, res) => {
     try {
 
         let data: any = await getAllSchemeCategory();
@@ -27,7 +28,7 @@ router.get("/get-allscheme-category", tokenMiddleWare, async (req: any, res) => 
 });
 
 //find by id
-router.get("/get-allscheme-subcategory/:id", tokenMiddleWare, async (req: any, res) => {
+router.get("/get-allscheme-subcategory/:id", dataReadRateLimit, tokenMiddleWare, async (req: any, res) => {
     try {
 
         let data: any = await getAllSchemeSubCategorybyId(req.params);
@@ -39,7 +40,7 @@ router.get("/get-allscheme-subcategory/:id", tokenMiddleWare, async (req: any, r
     }
 });
 
-router.get("/get-scheme-by-id/:id", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-scheme-by-id/:id", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let data: any = await getSchemeDataById(req.params.id);
@@ -53,7 +54,7 @@ router.get("/get-scheme-by-id/:id", tokenMiddleWare, async (req: any, res: any) 
 
 
 //
-router.post("/get-scheme-by-ISIN", tokenMiddleWare, async (req: any, res) => {
+router.post("/get-scheme-by-ISIN", dataReadRateLimit, tokenMiddleWare, async (req: any, res) => {
     try {
 
         let data: any = await getAllSchemeByISIN(req.body);
@@ -69,7 +70,7 @@ router.post("/get-scheme-by-ISIN", tokenMiddleWare, async (req: any, res) => {
     }
 });
 
-router.post("/get-scheme-nav-graph-detail", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-scheme-nav-graph-detail", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
         let id = req.body.id;
         let schemeType = req.body.scheme_type;
@@ -165,7 +166,7 @@ router.post("/get-scheme-nav-graph-detail", tokenMiddleWare, async (req: any, re
 });
 
 
-router.post("/get-scheme-keyparameter-data", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-scheme-keyparameter-data", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -186,7 +187,7 @@ router.post("/get-scheme-keyparameter-data", tokenMiddleWare, async (req: any, r
     }
 })
 
-router.post("/get-related-scheme-data", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-related-scheme-data", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -201,7 +202,7 @@ router.post("/get-related-scheme-data", tokenMiddleWare, async (req: any, res: a
     }
 })
 
-router.post("/get-performance-scheme-data", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-performance-scheme-data", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -216,7 +217,7 @@ router.post("/get-performance-scheme-data", tokenMiddleWare, async (req: any, re
     }
 })
 
-router.post("/get-fundmanager-data", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-fundmanager-data", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -231,7 +232,7 @@ router.post("/get-fundmanager-data", tokenMiddleWare, async (req: any, res: any)
     }
 })
 
-router.post("/get-fundmanager-data-byId", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-fundmanager-data-byId", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -246,7 +247,7 @@ router.post("/get-fundmanager-data-byId", tokenMiddleWare, async (req: any, res:
     }
 })
 
-router.post("/get-schemeData-bymanager", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-schemeData-bymanager", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -261,7 +262,7 @@ router.post("/get-schemeData-bymanager", tokenMiddleWare, async (req: any, res: 
     }
 })
 
-router.post("/get-holdingData", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-holdingData", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         const currentDate = new Date();
@@ -333,7 +334,7 @@ router.post("/get-holdingData", tokenMiddleWare, async (req: any, res: any) => {
     }
 })
 
-router.post(`/get-ratio-scheme-data`, tokenMiddleWare, async (req: any, res: any) => {
+router.post(`/get-ratio-scheme-data`, dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -350,7 +351,7 @@ router.post(`/get-ratio-scheme-data`, tokenMiddleWare, async (req: any, res: any
 )
 
 
-router.post("/get-mutual-related-scheme-data", tokenMiddleWare, async (req: any, res: any) => {
+router.post("/get-mutual-related-scheme-data", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         let body: any = req.body;
@@ -365,7 +366,7 @@ router.post("/get-mutual-related-scheme-data", tokenMiddleWare, async (req: any,
     }
 })
 
-router.get("/get-mutual-holdingData", tokenMiddleWare, async (req: any, res: any) => {
+router.get("/get-mutual-holdingData", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
     try {
 
         const currentDate = new Date();
