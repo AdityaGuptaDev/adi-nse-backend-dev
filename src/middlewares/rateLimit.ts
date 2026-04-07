@@ -12,10 +12,92 @@ interface RateLimitConfig {
     message?: string;
 }
 
+// --- Auth failure-based rate limiter ---
+// Only counts FAILED login/OTP attempts, not successful ones
+interface AuthFailureEntry {
+    count: number;
+    resetTime: number;
+}
+
+class AuthFailureRateLimiter {
+    private static instance: AuthFailureRateLimiter;
+    private cache = new Map<string, AuthFailureEntry>();
+    private readonly WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+    private readonly MAX_FAILURES = 5; // max failed attempts before blocking
+
+    constructor() {
+        setInterval(() => this.cleanup(), 5 * 60 * 1000);
+    }
+
+    static getInstance(): AuthFailureRateLimiter {
+        if (!AuthFailureRateLimiter.instance) {
+            AuthFailureRateLimiter.instance = new AuthFailureRateLimiter();
+        }
+        return AuthFailureRateLimiter.instance;
+    }
+
+    // Middleware: check if IP is blocked BEFORE allowing the request through
+    middleware = (req: Request, res: Response, next: NextFunction): void => {
+        const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+        const now = Date.now();
+        const entry = this.cache.get(ip);
+
+        // No entry or expired → allow
+        if (!entry || now > entry.resetTime) {
+            return next();
+        }
+
+        // Under the limit → allow
+        if (entry.count < this.MAX_FAILURES) {
+            return next();
+        }
+
+        // Blocked - too many failures
+        res.status(429).json({
+            success: false,
+            message: 'Too many failed attempts, please try again later',
+            error: 'RATE_LIMIT_EXCEEDED',
+            retryAfter: Math.ceil((entry.resetTime - now) / 1000)
+        });
+    };
+
+    // Call this when login/OTP FAILS
+    recordFailure(req: Request): void {
+        const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+        const now = Date.now();
+        let entry = this.cache.get(ip);
+
+        if (!entry || now > entry.resetTime) {
+            entry = { count: 1, resetTime: now + this.WINDOW_MS };
+        } else {
+            entry.count++;
+        }
+
+        this.cache.set(ip, entry);
+    }
+
+    // Call this when login/OTP SUCCEEDS → clear their failures
+    clearFailures(req: Request): void {
+        const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+        this.cache.delete(ip);
+    }
+
+    private cleanup(): void {
+        const now = Date.now();
+        for (const [key, entry] of this.cache.entries()) {
+            if (now > entry.resetTime) {
+                this.cache.delete(key);
+            }
+        }
+    }
+}
+
+export const authFailureLimiter = AuthFailureRateLimiter.getInstance();
+// Middleware to check if blocked
+export const authRateLimit = authFailureLimiter.middleware;
+
 // Pre-defined rate limit tiers
 export const RateLimitTiers = {
-    // Auth & OTP: strict - brute force protection
-    AUTH: { windowMs: 2 * 60 * 1000, maxRequests: 3, message: 'Too many authentication attempts, please try again later' },
     // Financial transactions: strict - prevent abuse of money movement
     FINANCIAL: { windowMs: 15 * 60 * 1000, maxRequests: 30, message: 'Too many transaction requests, please try again later' },
     // KYC & verification: moderate - external API cost + abuse prevention
@@ -102,7 +184,6 @@ export function createRateLimiter(config: RateLimitConfig) {
 }
 
 // Pre-built middleware for each tier
-export const authRateLimit = createRateLimiter(RateLimitTiers.AUTH);
 export const financialRateLimit = createRateLimiter(RateLimitTiers.FINANCIAL);
 export const kycRateLimit = createRateLimiter(RateLimitTiers.KYC);
 export const uploadRateLimit = createRateLimiter(RateLimitTiers.UPLOAD);

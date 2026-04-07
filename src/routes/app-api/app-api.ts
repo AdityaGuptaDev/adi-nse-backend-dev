@@ -14,7 +14,7 @@ import { findAdminFilterForInvester } from "../scheme/fundpicker-handler";
 import { ROLE, USER_TYPE } from "../../utils/constant";
 import { getUserTypeFromID } from "../../utils/helper";
 let { tokenMiddleWare, generateToken } = prosesjwt;
-import { authRateLimit } from "../../middlewares/rateLimit";
+import { authRateLimit, authFailureLimiter } from "../../middlewares/rateLimit";
 
 const router = express.Router();
 
@@ -131,7 +131,9 @@ router.post("/app-login", authRateLimit, async (req, res) => {
 
 
         sendEncryptedResponse(res, data, "login successfully");
+        authFailureLimiter.clearFailures(req);
     } catch (error) {
+        authFailureLimiter.recordFailure(req);
         ErrorLogger.write({ type: "login error", error });
         serverError(res, error);
     }

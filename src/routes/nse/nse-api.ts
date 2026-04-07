@@ -18,7 +18,11 @@ import {
   nseOrderStatus, 
   nseBankElogUpload, 
   nseMemberFundAllocation, 
-  nseTwoFaReport 
+  nseTwoFaReport, 
+  saveUCCStep0,
+  saveUCCStep1,
+  saveUCCStep2,
+  saveUCCStep3
 } from "./nse-handler";
 import ErrorLogger from "../../db/core/logger/error-logger";
 import { serverError } from "proses-response";
@@ -204,13 +208,25 @@ router.post("/ucc-registration", financialRateLimit, async (req, res) => {
 
     console.log("UCC registration request received", { mobile, userType });
 
+    if (!mobile) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "mobile is required" },
+        "ucc"
+      );
+    }
+
     const uccResponse = await uccRegistration(mobile, userType);
+    const regDetails = uccResponse?.reg_details?.[0];
+    const isUccSuccess = regDetails?.reg_status === "REG_SUCCESS";
 
     sendEncryptedResponse(
       res,
       {
-        status: "S",
-        remark: "UCC registration completed successfully",
+        status: isUccSuccess ? "S" : "F",
+        remark: isUccSuccess
+          ? "UCC registration completed successfully"
+          : regDetails?.reg_remark || "UCC registration failed",
         data: uccResponse,
       },
       "ucc"
@@ -704,6 +720,221 @@ router.post("/2fa-report", exportRateLimit, async (req, res) => {
     serverError(res, error);
   }
 });
+
+
+//code by aditya gupta for saving the details of NSE
+// Step 0 — PAN & Aadhaar (INSERT / upsert by mobile)
+router.post("/ucc/step-0",  async (req, res) => {
+  try {
+    const body = req.body;
+
+    if (!body.investor_id) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "investor_id is required" },
+        "ucc-step-0"
+      );
+    }
+
+    const result = await saveUCCStep0(body);
+
+    if (!result.success) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: result.message },
+        "ucc-step-0"
+      );
+    }
+
+    return sendEncryptedResponse(
+      res,
+      { status: "S", remark: result.message, data: result.data },
+      "ucc-step-0"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "ucc-step-0 error", error });
+    serverError(res, error);
+  }
+});
+
+// Step 1 — Holding Pattern (UPDATE by mobile)
+router.post("/ucc/step-1",  async (req, res) => {
+  try {
+    const body = req.body;
+
+    if (!body.investor_id) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "investor_id is required" },
+        "ucc-step-1"
+      );
+    }
+
+    const result = await saveUCCStep1(body);
+
+    if (!result.success) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: result.message },
+        "ucc-step-1"
+      );
+    }
+
+    return sendEncryptedResponse(
+      res,
+      { status: "S", remark: result.message, data: result.data },
+      "ucc-step-1"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "ucc-step-1 error", error });
+    serverError(res, error);
+  }
+});
+
+// Step 2 — Nominee Details (UPDATE by mobile)
+router.post("/ucc/step-2", async (req, res) => {
+  try {
+    const body = req.body;
+
+    if (!body.investor_id) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "investor_id is required" },
+        "ucc-step-2"
+      );
+    }
+
+    const result = await saveUCCStep2(body);
+
+    if (!result.success) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: result.message },
+        "ucc-step-2"
+      );
+    }
+
+    return sendEncryptedResponse(
+      res,
+      { status: "S", remark: result.message, data: result.data },
+      "ucc-step-2"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "ucc-step-2 error", error });
+    serverError(res, error);
+  }
+});
+
+// Step 3 — Bank Details + Final Submit (UPDATE by mobile)
+router.post("/ucc/step-3",  async (req, res) => {
+  console.log("\n\n████████████████████████████████████████████████████████");
+  console.log("█  [STEP-3] ROUTE HIT  /nse/ucc/step-3");
+  console.log("████████████████████████████████████████████████████████");
+  try {
+    const body = req.body;
+    console.log("[STEP-3] >>> 1. Request body received:", JSON.stringify(body, null, 2));
+
+    console.log("[STEP-3] >>> 2. Checking investor_id presence...");
+    if (!body.investor_id) {
+      console.log("[STEP-3] !!! investor_id MISSING — aborting");
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "investor_id is required" },
+        "ucc-step-3"
+      );
+    }
+    console.log("[STEP-3] >>> investor_id =", body.investor_id);
+
+    console.log("[STEP-3] >>> 3. Calling saveUCCStep3() to persist bank/foreign/final fields...");
+    const result = await saveUCCStep3(body);
+    console.log("[STEP-3] >>> 3. saveUCCStep3() returned:", result);
+
+    if (!result.success) {
+      console.log("[STEP-3] !!! saveUCCStep3 reported failure — aborting before NSE call");
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: result.message },
+        "ucc-step-3"
+      );
+    }
+
+    // Mobile MUST come from the request payload (indian_mobile_no), not from InvestorRegistration
+    const requestMobile: string = body.indian_mobile_no || "";
+    console.log("[STEP-3] >>> 4. requestMobile (from body.indian_mobile_no) =", requestMobile);
+
+    if (!requestMobile) {
+      console.log("[STEP-3] !!! indian_mobile_no missing in request body — aborting");
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "indian_mobile_no is required in request body" },
+        "ucc-step-3"
+      );
+    }
+
+    const userType = body.userType ?? body.user_type ?? 0;
+    console.log("[STEP-3] >>> 5. Resolved userType =", userType);
+
+    console.log("[STEP-3] >>> 6. ============ CALLING uccRegistration() ============");
+    console.log("[STEP-3] >>> 6. args:", {
+      mobile: requestMobile,
+      userType,
+    });
+
+    let uccResponse: any;
+    try {
+      uccResponse = await uccRegistration(requestMobile, userType);
+      console.log("[STEP-3] >>> 6. ============ uccRegistration() RETURNED ============");
+      console.log("[STEP-3] >>> 6. raw response:", JSON.stringify(uccResponse, null, 2));
+      console.log("[STEP-3] >>> 6. summary:", {
+        reg_status: uccResponse?.reg_details?.[0]?.reg_status,
+        reg_id: uccResponse?.reg_details?.[0]?.reg_id,
+        reg_remark: uccResponse?.reg_details?.[0]?.reg_remark,
+      });
+    } catch (uccErr: any) {
+      console.error("[STEP-3] !!! uccRegistration() THREW:", uccErr?.message);
+      console.error("[STEP-3] !!! stack:", uccErr?.stack);
+      ErrorLogger.write({ type: "ucc-step-3 nse ucc error", error: uccErr });
+      return sendEncryptedResponse(
+        res,
+        {
+          status: "F",
+          remark:
+            uccErr?.message || "UCC registration failed at NSE",
+          data: result.data,
+        },
+        "ucc-step-3"
+      );
+    }
+
+    console.log("[STEP-3] >>> 7. Evaluating reg_status to decide final response...");
+    const regDetails = uccResponse?.reg_details?.[0];
+    const isUccSuccess = regDetails?.reg_status === "REG_SUCCESS";
+    console.log("[STEP-3] >>> 7. isUccSuccess =", isUccSuccess);
+
+    console.log("[STEP-3] >>> 8. Sending encrypted response back to frontend");
+    console.log("████████████████████████████████████████████████████████\n");
+    return sendEncryptedResponse(
+      res,
+      {
+        status: isUccSuccess ? "S" : "F",
+        remark: isUccSuccess
+          ? "UCC registration completed successfully"
+          : regDetails?.reg_remark || "UCC registration failed",
+        data: {
+          step3: result.data,
+          ucc: uccResponse,
+        },
+      },
+      "ucc-step-3"
+    );
+  } catch (error: any) {
+    console.error("[STEP-3] !!! TOP-LEVEL CATCH:", error?.message);
+    console.error("[STEP-3] !!! stack:", error?.stack);
+    ErrorLogger.write({ type: "ucc-step-3 error", error });
+    serverError(res, error);
+  }
+});
+
 
 export default router;
 

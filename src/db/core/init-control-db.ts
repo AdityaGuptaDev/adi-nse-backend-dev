@@ -124,6 +124,7 @@ import { InvestorRequestDecentroLogs } from "../../routes/decentro/InvestorReque
 import { BcRegistration } from "../../routes/buisnessCorrespondent/bc-model";
 import { PanVerification } from "../../routes/partner/pan-verifications-model";
 import { UccRegistrationLog } from "../../routes/nse/nse-ucc-reg-logs";
+import { UCCRegistration } from "../../routes/nse/ucc-registration-model";
 import { NseTransactionLog, NseSipRegistrationLog, NseCancellationLog, NseBankDetailsLog, NseMandateLog, NseReportLog, NseElogLog } from "../../routes/nse/nse-api-logs";
 
 export {
@@ -231,6 +232,7 @@ export {
   InvestorFatcaDetails,
   InvestorBasicDetails,
   UccRegistrationLog,
+  UCCRegistration,
   NseTransactionLog,
   NseSipRegistrationLog,
   NseCancellationLog,
@@ -349,6 +351,7 @@ export function initControlDB(sequelize: Sequelize) {
   InvestorFatcaDetails.initModel(sequelize);
   InvestorBasicDetails.initModel(sequelize);
   UccRegistrationLog.initModel(sequelize);
+  UCCRegistration.initModel(sequelize);
   NseTransactionLog.initModel(sequelize);
   NseSipRegistrationLog.initModel(sequelize);
   NseCancellationLog.initModel(sequelize);
@@ -1311,6 +1314,7 @@ export function initControlDB(sequelize: Sequelize) {
     InvestorFatcaDetails,
     InvestorBasicDetails,
     UccRegistrationLog,
+    UCCRegistration,
     NseTransactionLog,
     NseSipRegistrationLog,
     NseCancellationLog,

@@ -74,7 +74,7 @@ const sendSmsWithFallback = async (to: string, message: string) => {
     }
   }
 };
-import { authRateLimit, dataReadRateLimit, dataWriteRateLimit, debugRateLimit } from "../../middlewares/rateLimit";
+import { authRateLimit, authFailureLimiter, dataReadRateLimit, dataWriteRateLimit, debugRateLimit } from "../../middlewares/rateLimit";
 import { OtpDetail } from "./otp-detail-model";
 import { Users } from "./user-model";
 import { addUserBcData, addUserInvestorData, addUserPartnerData } from "../kyc-flow/kyc-handler";
@@ -145,11 +145,13 @@ if (user.mobileOTP && !user.loginOTP) {
   // loginOTP available hai — loginOTP use karo
   otpToCompare = user.loginOTP;
 }
-
+if(!password){
 if (!otpToCompare || otpToCompare !== loginOTP) {
   console.log("invalid otp entered");
   throw other(res, "Invalid OTP");
 }
+}
+
       let userTypeData = await getUserMapping(user.id, req.body.userTypeId);
 
       // If userTypeId is provided, filter to only that user type
@@ -245,22 +247,23 @@ if (!otpToCompare || otpToCompare !== loginOTP) {
     console.log(data, 'userTypeDatauserTypeDatauserTypeData')
 
     sendEncryptedResponse(res, data, "login successfully");
-    
+
     // Clear failed login attempts on successful login
     securityMonitor.clearFailedAttempts(userName);
-    
-    // sendEncryptedResponse(res,  data, "login successfully");
+    authFailureLimiter.clearFailures(req);
+
   } catch (error: any) {
     console.log(error?.message || error, "errorrrrr");
-    
+
     // Track failed login attempt with SIEM
     const { userName: failedUserName } = req.body;
     const identifier = failedUserName || 'unknown';
     const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
     const userAgent = req.get('User-Agent') || 'unknown';
-    
+
     securityMonitor.trackFailedLogin(identifier, ipAddress, userAgent, error?.message || error);
-    
+    authFailureLimiter.recordFailure(req);
+
     ErrorLogger.write({ type: "login error", error });
     serverError(res, error);
   }
@@ -384,18 +387,19 @@ router.post("/investor-login", authRateLimit, async (req, res) => {
     // console.log(data, 'userTypeDatauserTypeDatauserTypeData')
 
     sendEncryptedResponse(res, data, "login successfully");
-    // sendEncryptedResponse(res,  data, "login successfully");
+    authFailureLimiter.clearFailures(req);
   } catch (error: any) {
     console.log(error?.message || error, "errorrrrr");
-    
+
     // Track failed login attempt with SIEM
     const { userName: failedUserName } = req.body;
     const identifier = failedUserName || 'unknown';
     const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
     const userAgent = req.get('User-Agent') || 'unknown';
-    
+
     securityMonitor.trackFailedLogin(identifier, ipAddress, userAgent, error?.message || error);
-    
+    authFailureLimiter.recordFailure(req);
+
     ErrorLogger.write({ type: "login error", error });
     serverError(res, error);
   }
@@ -533,18 +537,19 @@ router.post("/partner-login", authRateLimit, async (req, res) => {
     // console.log(data, 'userTypeDatauserTypeDatauserTypeData')
 
     sendEncryptedResponse(res, data, "login successfully");
-    // sendEncryptedResponse(res,  data, "login successfully");
+    authFailureLimiter.clearFailures(req);
   } catch (error: any) {
     console.log(error?.message || error, "errorrrrr");
-    
+
     // Track failed login attempt with SIEM
     const { userName: failedUserName } = req.body;
     const identifier = failedUserName || 'unknown';
     const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
     const userAgent = req.get('User-Agent') || 'unknown';
-    
+
     securityMonitor.trackFailedLogin(identifier, ipAddress, userAgent, error?.message || error);
-    
+    authFailureLimiter.recordFailure(req);
+
     ErrorLogger.write({ type: "login error", error });
     serverError(res, error);
   }
@@ -954,7 +959,9 @@ router.post("/forgotPassword", authRateLimit, async (req, res) => {
     );
 
     sendEncryptedResponse(res, user, "New Password Sent via Email");
+    authFailureLimiter.clearFailures(req);
   } catch (error) {
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "forgotPassword error", error });
     serverError(res, error);
   }
@@ -984,7 +991,9 @@ router.post("/changePassword", authRateLimit, tokenMiddleWare, async (req: any, 
       newValue,
       "Your Password has been successfully updated!!"
     );
+    authFailureLimiter.clearFailures(req);
   } catch (error) {
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "changePassword error", error });
     serverError(res, error);
   }
@@ -1083,8 +1092,10 @@ await OtpDetail.create(
     );*/
 
     sendEncryptedResponse(res, user, "OTP sent successfully");
+    authFailureLimiter.clearFailures(req);
   } catch (error) {
     await t.rollback();
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "register-user", error });
     serverError(res, error);
   }
@@ -1111,6 +1122,7 @@ router.post("/verify-otp", authRateLimit, async (req: any, res: any) => {
     }
 
     if (user.loginOTP !== mobileOTP) {
+      authFailureLimiter.recordFailure(req);
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
@@ -1145,9 +1157,11 @@ router.post("/verify-otp", authRateLimit, async (req: any, res: any) => {
     }
 
     sendEncryptedResponse(res, savedUser, "OTP verified successfully");
+    authFailureLimiter.clearFailures(req);
   } catch (error: any) {
     console.log(error?.message || error, "errorrrrr");
     await t.rollback();
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "register-otp", error });
     serverError(res, error);
   }
@@ -1353,9 +1367,11 @@ if (userMapping) {
     }
     await t.commit();
     sendEncryptedResponse(res, user, "New Register successfully Addred!!");
+    authFailureLimiter.clearFailures(req);
   } catch (error) {
     console.log(error, "error");
     await t.rollback();
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "register-user error", error });
     serverError(res, error);
   }
@@ -1544,9 +1560,11 @@ router.put("/register-otp/:id", authRateLimit, async (req: any, res: any) => {
 
 
     sendEncryptedResponse(res, user, "Your OTP is verified successfully!!");
+    authFailureLimiter.clearFailures(req);
   } catch (error) {
     console.log("Otp Verificatpon Error ====", error)
     await t.rollback();
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "register-otp error", error });
     serverError(res, error);
   }
@@ -1621,8 +1639,10 @@ router.post("/login-otp", authRateLimit, async (req: any, res: any) => {
     }
 
     sendEncryptedResponse(res, user, "Your OTP send successfully!!");
+    authFailureLimiter.clearFailures(req);
   } catch (error) {
     console.log(error, "error");
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "login-otp error", error });
     serverError(res, error);
   }
@@ -1691,8 +1711,10 @@ router.post("/resend-otp", authRateLimit, async (req: any, res: any) => {
     }
 
     sendEncryptedResponse(res, user, "Your OTP send successfully!!");
+    authFailureLimiter.clearFailures(req);
   } catch (error) {
     console.log(error, "errrorrrrrrrr");
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "resend-otp error", error });
     serverError(res, error);
   }
@@ -2017,9 +2039,11 @@ router.post("/check-user-types", authRateLimit, async (req, res) => {
     };
 
     sendEncryptedResponse(res, response, "User types retrieved successfully");
+    authFailureLimiter.clearFailures(req);
   } catch (error: any) {
     const identifier = userName || 'unknown';
     securityMonitor.trackFailedLogin(identifier, ipAddress, userAgent, error?.message || String(error));
+    authFailureLimiter.recordFailure(req);
     ErrorLogger.write({ type: "check-user-types error", error });
     serverError(res, error);
   }
