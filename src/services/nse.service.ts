@@ -606,7 +606,7 @@ export async function nseClientBankDetailsApi(payload: any): Promise<any> {
 export async function nseMandatePurchaseApi(payload: any): Promise<any> {
   console.log("========== nseMandatePurchaseApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE/PURCHASE';
+  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE';
   const memberId = process.env.NSE_MEMBER_ID || '1003039';
   const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
 
@@ -636,7 +636,7 @@ export async function nseMandatePurchaseApi(payload: any): Promise<any> {
 export async function nseMandateRedemptionApi(payload: any): Promise<any> {
   console.log("========== nseMandateRedemptionApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE/REDEMPTION';
+  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE';
   const memberId = process.env.NSE_MEMBER_ID || '1003039';
   const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
 
@@ -809,6 +809,251 @@ export async function nseTwoFaReportApi(payload: any): Promise<any> {
   } catch (error: any) {
     console.error("NSE 2FA report error:", error);
     throw new Error(error.response?.data?.message || error.message || "NSE 2FA report request failed");
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NEW SERVICE FUNCTIONS FOR COMPLETE NSE MODULE
+// ══════════════════════════════════════════════════════════════
+
+const NSE_BASE_URL = 'https://nseinvestuat.nseindia.com';
+
+function getNseHeaders() {
+  const memberId = process.env.NSE_MEMBER_ID || '1003039';
+  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
+  return {
+    'memberId': memberId,
+    'Content-Type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Authorization': authToken,
+    'Cookie': process.env.NSE_COOKIE || ''
+  };
+}
+
+// Scheme Master Download API
+export async function nseScheMasterDownloadApi(fileType: string): Promise<any> {
+  console.log("========== nseSchemeMasterDownloadApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/MASTER_DOWNLOAD`;
+  try {
+    const response = await axios.post(url, { file_type: fileType }, { headers: getNseHeaders() });
+    console.log("NSE Scheme Master Download Response received, type:", fileType);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE scheme master download error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE scheme master download failed");
+  }
+}
+
+// Get Short URL Link API
+export async function nseGetLinkApi(payload: any): Promise<any> {
+  console.log("========== nseGetLinkApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/GET_LINK`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Get Link Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE get link error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE get link request failed");
+  }
+}
+
+// Resend Communication API
+export async function nseResendCommApi(payload: any): Promise<any> {
+  console.log("========== nseResendCommApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/RESEND_COMM`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Resend Comm Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE resend comm error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE resend comm request failed");
+  }
+}
+
+// Mandate Status Report API
+export async function nseMandateStatusApi(payload: any): Promise<any> {
+  console.log("========== nseMandateStatusApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/MANDATE_STATUS`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Mandate Status Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE mandate status error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE mandate status request failed");
+  }
+}
+
+// Purchase Orders Payment API
+export async function nsePurchasePaymentApi(payload: any): Promise<any> {
+  console.log("========== nsePurchasePaymentApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/payments/purchase_payment`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Purchase Payment Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE purchase payment error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE purchase payment request failed");
+  }
+}
+
+// UPI Payment Status Check API
+export async function nseUpiStatusCheckApi(payload: any): Promise<any> {
+  console.log("========== nseUpiStatusCheckApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/payments/upi_status_check`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE UPI Status Check Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE UPI status check error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE UPI status check failed");
+  }
+}
+
+// SIP Cancellation API
+export async function nseSipCancellationApi(payload: any): Promise<any> {
+  console.log("========== nseSipCancellationApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/cancellation/SIP_CAN`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE SIP Cancellation Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE SIP cancellation error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE SIP cancellation request failed");
+  }
+}
+
+// XSIP Cancellation API
+export async function nseXsipCancellationApi(payload: any): Promise<any> {
+  console.log("========== nseXsipCancellationApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/cancellation/XSIP_CAN`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE XSIP Cancellation Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE XSIP cancellation error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE XSIP cancellation request failed");
+  }
+}
+
+// SWP Cancellation API
+export async function nseSwpCancellationApi(payload: any): Promise<any> {
+  console.log("========== nseSwpCancellationApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/cancellation/SWP_CAN`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE SWP Cancellation Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE SWP cancellation error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE SWP cancellation request failed");
+  }
+}
+
+// SIP/XSIP Pause API
+export async function nseXsipPauseApi(payload: any): Promise<any> {
+  console.log("========== nseXsipPauseApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/XSIP_PAUSE`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE XSIP Pause Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE XSIP pause error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE XSIP pause request failed");
+  }
+}
+
+// FATCA Upload API (Individual)
+export async function nseFatcaUploadApi(payload: any): Promise<any> {
+  console.log("========== nseFatcaUploadApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/FATCA`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE FATCA Upload Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE FATCA upload error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE FATCA upload request failed");
+  }
+}
+
+// KYC Status Check API
+export async function nseKycCheckApi(payload: any): Promise<any> {
+  console.log("========== nseKycCheckApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/utility/KYC_CHECK`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE KYC Check Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE KYC check error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE KYC check request failed");
+  }
+}
+
+// Client Authorization Report API
+export async function nseClientAuthReportApi(payload: any): Promise<any> {
+  console.log("========== nseClientAuthReportApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/client_authorization`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Client Auth Report Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE client auth report error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE client auth report request failed");
+  }
+}
+
+// AOF Image Upload API
+export async function nseAofUploadApi(payload: any): Promise<any> {
+  console.log("========== nseAofUploadApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/fileupload/AOFIMG`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE AOF Upload Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE AOF upload error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE AOF upload request failed");
+  }
+}
+
+// Allotment Statement Report API
+export async function nseAllotmentStatementApi(payload: any): Promise<any> {
+  console.log("========== nseAllotmentStatementApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/ALLOTMENT_STATEMENT`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Allotment Statement Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE allotment statement error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE allotment statement request failed");
+  }
+}
+
+// Redemption Payout Date Report API
+export async function nseRedemptionPayoutApi(payload: any): Promise<any> {
+  console.log("========== nseRedemptionPayoutApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/REDEMPTION_PAYOUT`;
+  try {
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Redemption Payout Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE redemption payout error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE redemption payout request failed");
   }
 }
 

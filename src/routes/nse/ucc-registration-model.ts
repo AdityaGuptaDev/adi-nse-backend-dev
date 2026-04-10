@@ -22,6 +22,7 @@ export interface UCCRegistrationAttributes {
   primaryHolderKycType?: string | null;
   primaryHolderCkycNumber?: string | null;
   aadhaarUpdated?: string | null;
+  aadhaarNo?: string | null;
   mapinId?: string | null;
   address1?: string | null;
   address2?: string | null;
@@ -220,6 +221,9 @@ export interface UCCRegistrationAttributes {
   // Form progress tracking
   formStep?: number | null;
 
+  // UCC creation status (0 = not created, 1 = created successfully on NSE)
+  uccCreated?: number | null;
+
   createdAt?: Date | null;
   updatedAt?: Date | null;
 }
@@ -247,6 +251,7 @@ export class UCCRegistration
   declare primaryHolderKycType: string | null;
   declare primaryHolderCkycNumber: string | null;
   declare aadhaarUpdated: string | null;
+  declare aadhaarNo: string | null;
   declare mapinId: string | null;
   declare address1: string | null;
   declare address2: string | null;
@@ -431,6 +436,7 @@ export class UCCRegistration
   declare regRemark: string | null;
 
   declare formStep: number | null;
+  declare uccCreated: number | null;
 
   declare createdAt: Date | null;
   declare updatedAt: Date | null;
@@ -461,6 +467,7 @@ export class UCCRegistration
         primaryHolderKycType: { type: DataTypes.STRING(5), allowNull: true, field: "primary_holder_kyc_type" },
         primaryHolderCkycNumber: { type: DataTypes.STRING(20), allowNull: true, field: "primary_holder_ckyc_number" },
         aadhaarUpdated: { type: DataTypes.STRING(2), allowNull: true, defaultValue: "Y", field: "aadhaar_updated" },
+        aadhaarNo: { type: DataTypes.STRING(20), allowNull: true, field: "aadhaar_no" },
         mapinId: { type: DataTypes.STRING(20), allowNull: true, field: "mapin_id" },
         address1: { type: DataTypes.STRING(255), allowNull: true, field: "address_1" },
         address2: { type: DataTypes.STRING(255), allowNull: true, field: "address_2" },
@@ -658,6 +665,7 @@ export class UCCRegistration
 
         // Form progress tracking
         formStep: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: "form_step" },
+        uccCreated: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: "ucc_created" },
 
         createdAt: {
           type: DataTypes.DATE,

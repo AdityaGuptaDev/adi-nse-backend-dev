@@ -1,28 +1,45 @@
 import express from "express";
 import { sendEncryptedResponse } from "../../services/encryptResponse-service";
-import { 
-  uccRegistration, 
-  nseTransaction, 
-  nseRedemption, 
-  nseSwitch, 
-  nseXsipRegistration, 
-  nseSipRegistration, 
-  nseStpRegistration, 
-  nseSwpRegistration, 
-  nseOrderCancellation, 
-  nseStpCancellation, 
-  nseClientBankDetails, 
-  nseMandatePurchase, 
-  nseMandateRedemption, 
-  nseProvisionalReport, 
-  nseOrderStatus, 
-  nseBankElogUpload, 
-  nseMemberFundAllocation, 
-  nseTwoFaReport, 
+import {
+  uccRegistration,
+  nseTransaction,
+  nseRedemption,
+  nseSwitch,
+  nseXsipRegistration,
+  nseSipRegistration,
+  nseStpRegistration,
+  nseSwpRegistration,
+  nseOrderCancellation,
+  nseStpCancellation,
+  nseClientBankDetails,
+  nseMandatePurchase,
+  nseMandateRedemption,
+  nseProvisionalReport,
+  nseOrderStatus,
+  nseBankElogUpload,
+  nseMemberFundAllocation,
+  nseTwoFaReport,
   saveUCCStep0,
   saveUCCStep1,
   saveUCCStep2,
-  saveUCCStep3
+  saveUCCStep3,
+  // New handlers
+  nseSchemeMasterDownload,
+  nseGetLink,
+  nseResendComm,
+  nseMandateStatus,
+  nsePurchasePayment,
+  nseUpiStatusCheck,
+  nseSipCancellation,
+  nseXsipCancellation,
+  nseSwpCancellation,
+  nseXsipPause,
+  nseFatcaUpload,
+  nseKycCheck,
+  nseClientAuthReport,
+  nseAofUpload,
+  nseAllotmentStatement,
+  nseRedemptionPayout,
 } from "./nse-handler";
 import ErrorLogger from "../../db/core/logger/error-logger";
 import { serverError } from "proses-response";
@@ -31,6 +48,7 @@ import { CookieJar } from "tough-cookie";
 import { apiRequest } from "../../services/apirequest.service";
 import { AxiosRequestConfig } from "axios";
 import { financialRateLimit, exportRateLimit } from "../../middlewares/rateLimit";
+import { UCCRegistration } from "./ucc-registration-model";
 
 const router = express.Router();
 const axios = require('axios');
@@ -931,6 +949,439 @@ router.post("/ucc/step-3",  async (req, res) => {
     console.error("[STEP-3] !!! TOP-LEVEL CATCH:", error?.message);
     console.error("[STEP-3] !!! stack:", error?.stack);
     ErrorLogger.write({ type: "ucc-step-3 error", error });
+    serverError(res, error);
+  }
+});
+
+// Search UCCRegistration details by mobile number
+router.get("/ucc/search-by-mobile/:mobile", async (req, res) => {
+  try {
+    const { mobile } = req.params;
+
+    if (!mobile) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "mobile is required" },
+        "ucc-search"
+      );
+    }
+
+    const record = await UCCRegistration.findOne({
+      where: { indianMobileNo: mobile },
+    });
+
+    if (!record) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "No UCC record found for this mobile" },
+        "ucc-search"
+      );
+    }
+
+    return sendEncryptedResponse(
+      res,
+      { status: "S", remark: "UCC record fetched successfully", data: record },
+      "ucc-search"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "ucc-search-by-mobile error", error });
+    serverError(res, error);
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════
+//  NEW API ROUTES FOR COMPLETE NSE MODULE
+// ══════════════════════════════════════════════════════════════
+
+// Scheme Master Download
+router.get("/scheme-master", exportRateLimit, async (req, res) => {
+  try {
+    const fileType = (req.query.file_type as string) || "SCH";
+    const response = await nseSchemeMasterDownload(fileType);
+    sendEncryptedResponse(res, { status: "S", remark: "Scheme master fetched", data: response }, "scheme-master");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse scheme master error", error });
+    serverError(res, error);
+  }
+});
+
+// Get Short URL Link
+router.post("/get-link", financialRateLimit, async (req, res) => {
+  try {
+    const response = await nseGetLink(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "Link fetched", data: response }, "get-link");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse get-link error", error });
+    serverError(res, error);
+  }
+});
+
+// Resend Communication
+router.post("/resend-comm", financialRateLimit, async (req, res) => {
+  try {
+    const response = await nseResendComm(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "Communication resent", data: response }, "resend-comm");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse resend-comm error", error });
+    serverError(res, error);
+  }
+});
+
+// Mandate Status Report
+router.post("/mandate-status", exportRateLimit, async (req, res) => {
+  try {
+    const response = await nseMandateStatus(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "Mandate status fetched", data: response }, "mandate-status");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse mandate-status error", error });
+    serverError(res, error);
+  }
+});
+
+// Purchase Payment
+router.post("/purchase-payment", financialRateLimit, async (req, res) => {
+  try {
+    const response = await nsePurchasePayment(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "Payment processed", data: response }, "purchase-payment");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse purchase-payment error", error });
+    serverError(res, error);
+  }
+});
+
+// UPI Status Check
+router.post("/upi-status", financialRateLimit, async (req, res) => {
+  try {
+    const response = await nseUpiStatusCheck(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "UPI status fetched", data: response }, "upi-status");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse upi-status error", error });
+    serverError(res, error);
+  }
+});
+
+// SIP Cancellation
+router.post("/sip-cancellation", financialRateLimit, async (req, res) => {
+  try {
+    const { can_data } = req.body;
+    if (!can_data || !Array.isArray(can_data)) {
+      return res.status(400).json({ success: false, message: "can_data is required and must be an array" });
+    }
+    const response = await nseSipCancellation(can_data);
+    sendEncryptedResponse(res, { status: "S", remark: "SIP cancellation processed", data: response }, "sip-cancellation");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse sip-cancellation error", error });
+    serverError(res, error);
+  }
+});
+
+// XSIP Cancellation
+router.post("/xsip-cancellation", financialRateLimit, async (req, res) => {
+  try {
+    const { can_data } = req.body;
+    if (!can_data || !Array.isArray(can_data)) {
+      return res.status(400).json({ success: false, message: "can_data is required and must be an array" });
+    }
+    const response = await nseXsipCancellation(can_data);
+    sendEncryptedResponse(res, { status: "S", remark: "XSIP cancellation processed", data: response }, "xsip-cancellation");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse xsip-cancellation error", error });
+    serverError(res, error);
+  }
+});
+
+// SWP Cancellation
+router.post("/swp-cancellation", financialRateLimit, async (req, res) => {
+  try {
+    const { can_data } = req.body;
+    if (!can_data || !Array.isArray(can_data)) {
+      return res.status(400).json({ success: false, message: "can_data is required and must be an array" });
+    }
+    const response = await nseSwpCancellation(can_data);
+    sendEncryptedResponse(res, { status: "S", remark: "SWP cancellation processed", data: response }, "swp-cancellation");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse swp-cancellation error", error });
+    serverError(res, error);
+  }
+});
+
+// XSIP Pause/Resume
+router.post("/xsip-pause", financialRateLimit, async (req, res) => {
+  try {
+    const { pause_data } = req.body;
+    if (!pause_data || !Array.isArray(pause_data)) {
+      return res.status(400).json({ success: false, message: "pause_data is required and must be an array" });
+    }
+    const response = await nseXsipPause(pause_data);
+    sendEncryptedResponse(res, { status: "S", remark: "XSIP pause processed", data: response }, "xsip-pause");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse xsip-pause error", error });
+    serverError(res, error);
+  }
+});
+
+// FATCA Upload
+router.post("/fatca-upload", financialRateLimit, async (req, res) => {
+  try {
+    const response = await nseFatcaUpload(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "FATCA uploaded", data: response }, "fatca-upload");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse fatca-upload error", error });
+    serverError(res, error);
+  }
+});
+
+// KYC Check
+router.post("/kyc-check", exportRateLimit, async (req, res) => {
+  try {
+    const response = await nseKycCheck(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "KYC status fetched", data: response }, "kyc-check");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse kyc-check error", error });
+    serverError(res, error);
+  }
+});
+
+// Client Authorization Report
+router.post("/client-auth-report", exportRateLimit, async (req, res) => {
+  try {
+    const response = await nseClientAuthReport(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "Client auth report fetched", data: response }, "client-auth-report");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse client-auth-report error", error });
+    serverError(res, error);
+  }
+});
+
+// AOF Image Upload
+router.post("/aof-upload", financialRateLimit, async (req, res) => {
+  try {
+    const response = await nseAofUpload(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "AOF uploaded", data: response }, "aof-upload");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse aof-upload error", error });
+    serverError(res, error);
+  }
+});
+
+// Allotment Statement Report
+router.post("/allotment-statement", exportRateLimit, async (req, res) => {
+  try {
+    const response = await nseAllotmentStatement(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "Allotment statement fetched", data: response }, "allotment-statement");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse allotment-statement error", error });
+    serverError(res, error);
+  }
+});
+
+// Redemption Payout Report
+router.post("/redemption-payout", exportRateLimit, async (req, res) => {
+  try {
+    const response = await nseRedemptionPayout(req.body);
+    sendEncryptedResponse(res, { status: "S", remark: "Redemption payout fetched", data: response }, "redemption-payout");
+  } catch (error) {
+    ErrorLogger.write({ type: "nse redemption-payout error", error });
+    serverError(res, error);
+  }
+});
+
+
+// ── NSE UCC Investor List API ──
+// Returns all UCCRegistration rows with their UCC creation status
+// and the latest log entry from ucc_registration_logs for each investor.
+router.get("/ucc/investor-list", async (req, res) => {
+  try {
+    const { page = "1", limit = "20", ucc_status, search } = req.query as Record<string, string>;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Build WHERE clause
+    const where: any = {};
+    if (ucc_status === "created") {
+      where.uccCreated = 1;
+    } else if (ucc_status === "not_created") {
+      where.uccCreated = { [require("sequelize").Op.or]: [0, null] };
+    }
+    if (search) {
+      const { Op } = require("sequelize");
+      where[Op.or] = [
+        { indianMobileNo: { [Op.iLike]: `%${search}%` } },
+        { primaryHolderFirstName: { [Op.iLike]: `%${search}%` } },
+        { primaryHolderLastName: { [Op.iLike]: `%${search}%` } },
+        { primaryHolderPan: { [Op.iLike]: `%${search}%` } },
+        { clientCode: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    const { count, rows } = await UCCRegistration.findAndCountAll({
+      where,
+      attributes: [
+        "id",
+        "investorId",
+        "clientCode",
+        "primaryHolderFirstName",
+        "primaryHolderMiddleName",
+        "primaryHolderLastName",
+        "primaryHolderPan",
+        "taxStatus",
+        "email",
+        "indianMobileNo",
+        "holdingNature",
+        "gender",
+        "primaryHolderDobIncorporation",
+        "formStep",
+        "uccCreated",
+        "regId",
+        "regStatus",
+        "regRemark",
+        "createdAt",
+        "updatedAt",
+        // Bank 1
+        "accountType1",
+        "accountNo1",
+        "micrNo1",
+        "ifscCode1",
+        "defaultBankFlag1",
+        "bankName1",
+        "branchName1",
+        // Bank 2
+        "accountType2",
+        "accountNo2",
+        "micrNo2",
+        "ifscCode2",
+        "defaultBankFlag2",
+        "bankName2",
+        "branchName2",
+      ],
+      order: [["updatedAt", "DESC"]],
+      limit: limitNum,
+      offset,
+    });
+
+    // Fetch the latest UCC registration log for each mobile number
+    const { UccRegistrationLog } = require("./nse-ucc-reg-logs");
+    const mobiles = rows
+      .map((r: any) => r.indianMobileNo)
+      .filter((m: any) => m);
+
+    let logsByMobile: Record<string, any> = {};
+    if (mobiles.length > 0) {
+      const { Op } = require("sequelize");
+      const logs = await UccRegistrationLog.findAll({
+        where: { mobile: { [Op.in]: mobiles } },
+        order: [["id", "DESC"]],
+        attributes: [
+          "id",
+          "mobile",
+          "clientCode",
+          "status",
+          "remark",
+          "regId",
+          "regStatus",
+          "regRemark",
+          "createdAt",
+        ],
+      });
+      // Group by mobile, keep latest (first due to DESC order)
+      for (const log of logs) {
+        const m = log.mobile;
+        if (m && !logsByMobile[m]) {
+          logsByMobile[m] = log;
+        }
+      }
+    }
+
+    // Build response
+    const investors = rows.map((r: any) => {
+      const row = r.toJSON();
+      const latestLog = logsByMobile[row.indianMobileNo] || null;
+
+      return {
+        id: row.id,
+        investor_id: row.investorId,
+        client_code: row.clientCode,
+        name: [row.primaryHolderFirstName, row.primaryHolderMiddleName, row.primaryHolderLastName]
+          .filter(Boolean)
+          .join(" "),
+        pan: row.primaryHolderPan,
+        email: row.email,
+        mobile: row.indianMobileNo,
+        gender: row.gender,
+        dob: row.primaryHolderDobIncorporation,
+        tax_status: row.taxStatus,
+        holding_nature: row.holdingNature,
+        form_step: row.formStep,
+        ucc_created: row.uccCreated === 1,
+        ucc_status: row.uccCreated === 1 ? "CREATED" : "NOT CREATED",
+        reg_id: row.regId,
+        reg_status: row.regStatus,
+        reg_remark: row.regRemark,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+        // Bank details
+        banks: [
+          row.accountNo1
+            ? {
+                account_no: row.accountNo1,
+                account_type: row.accountType1 || "SB",
+                ifsc_code: row.ifscCode1 || "",
+                micr_no: row.micrNo1 || "",
+                bank_name: row.bankName1 || "",
+                branch_name: row.branchName1 || "",
+                default_bank_flag: row.defaultBankFlag1 || "N",
+              }
+            : null,
+          row.accountNo2
+            ? {
+                account_no: row.accountNo2,
+                account_type: row.accountType2 || "SB",
+                ifsc_code: row.ifscCode2 || "",
+                micr_no: row.micrNo2 || "",
+                bank_name: row.bankName2 || "",
+                branch_name: row.branchName2 || "",
+                default_bank_flag: row.defaultBankFlag2 || "N",
+              }
+            : null,
+        ].filter(Boolean),
+        // Latest log from ucc_registration_logs
+        latest_nse_log: latestLog
+          ? {
+              log_id: latestLog.id,
+              status: latestLog.status,
+              remark: latestLog.remark,
+              reg_id: latestLog.regId,
+              reg_status: latestLog.regStatus,
+              reg_remark: latestLog.regRemark,
+              submitted_at: latestLog.createdAt,
+            }
+          : null,
+      };
+    });
+
+    return sendEncryptedResponse(
+      res,
+      {
+        status: "S",
+        remark: "Investor list fetched successfully",
+        data: {
+          investors,
+          pagination: {
+            total: count,
+            page: pageNum,
+            limit: limitNum,
+            total_pages: Math.ceil(count / limitNum),
+          },
+        },
+      },
+      "ucc-investor-list"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "ucc-investor-list error", error });
     serverError(res, error);
   }
 });

@@ -8,6 +8,8 @@ import { QueryTypes } from "sequelize";
 import { UccRegistrationLog } from "./nse-ucc-reg-logs";
 import { NseTransactionLog, NseSipRegistrationLog, NseCancellationLog, NseBankDetailsLog, NseMandateLog, NseReportLog, NseElogLog } from "./nse-api-logs";
 import { UCCRegistration } from "./ucc-registration-model";
+import { StateMaster } from "../state_master/state_master-model";
+import { Op } from "sequelize";
 
 
 
@@ -42,6 +44,39 @@ const formatDobForNse = (val: any): string => {
   return "";
 };
 
+// ── Helper: Resolve state name/code → NSE bse_code (2-char code) ──
+// NSE expects state as a 2-char code (e.g., "UP"), not the full name "Uttar Pradesh".
+const resolveStateBseCode = async (val: any): Promise<string> => {
+  if (!val) return "";
+  const s = String(val).trim();
+  if (!s) return "";
+
+  // If already a 2-char code, return as-is uppercased
+  if (s.length === 2) return s.toUpperCase();
+
+  try {
+    const row = await StateMaster.findOne({
+      where: {
+        [Op.or]: [
+          { name: { [Op.iLike]: s } },
+          { state_code: { [Op.iLike]: s } },
+          { bse_code: { [Op.iLike]: s } },
+        ],
+      },
+      attributes: ["bse_code", "name"],
+    });
+    if (row && row.bse_code) {
+      console.log(`[resolveStateBseCode] "${s}" → "${row.bse_code}"`);
+      return row.bse_code;
+    }
+  } catch (e) {
+    console.warn("[resolveStateBseCode] lookup failed:", e);
+  }
+
+  console.warn("[resolveStateBseCode] !!! could not resolve state:", val);
+  return "";
+};
+
 // ── Helper: Build NSE UCC payload directly from UCCRegistration table row ──
 // Used as a fallback when InvestorRegistration / NomineeDetail / BankAccountDetail
 // data is missing or incomplete (e.g. reg_mobile is empty).
@@ -66,6 +101,73 @@ export const buildUccPayloadFromUccRegistration = async (
   console.log("[buildUccPayloadFromUccRegistration] >>> found row id =", row.id);
 
   const r = row;
+  // Resolve state name → NSE 2-char bse_code
+  const stateCode = await resolveStateBseCode(r.state);
+
+  // NSE expects country in UPPERCASE
+  const normalizeCountry = (c: any): string => {
+    if (!c) return "INDIA";
+    return String(c).trim().toUpperCase();
+  };
+
+  // NSE rules per UCC 183-Column spec (page 50, fields 131-132):
+  //   • If nominee_X_name is entered → identity_type is MANDATORY
+  //   • If identity_type is entered → identity_number is MANDATORY
+  //
+  // Pre-flight validation: if nominee is opted in but identity is missing,
+  // throw a clear error BEFORE hitting NSE so the user gets actionable feedback.
+  const validateAndNormalizeNomineeIdentity = (
+    nomineeIndex: number,
+    nomineeName: any,
+    type: any,
+    number: any
+  ): { type: string; number: string } => {
+    const name = nomineeName ? String(nomineeName).trim() : "";
+    const t = type ? String(type).trim() : "";
+    const n = number ? String(number).trim() : "";
+
+    // No nominee at this slot → nothing to validate
+    if (!name) return { type: "", number: "" };
+
+    // Nominee exists but identity_type missing → fatal
+    if (!t) {
+      throw new Error(
+        `Nominee ${nomineeIndex} identity type is required when a nominee is provided. ` +
+          `Please collect "Nominee ${nomineeIndex} ID Type" (1=PAN, 2=Aadhaar last 4 digits, 3=Driving Licence, 4=Passport) on the form.`
+      );
+    }
+
+    // identity_type given but identity_number missing → fatal
+    if (!n) {
+      throw new Error(
+        `Nominee ${nomineeIndex} identity number is required (identity type "${t}" was provided). ` +
+          `Please collect "Nominee ${nomineeIndex} ID Number" on the form.`
+      );
+    }
+
+    return { type: t, number: n };
+  };
+
+  const nom1Id = validateAndNormalizeNomineeIdentity(
+    1,
+    r.nominee1Name,
+    r.nominee1IdentityType,
+    r.nominee1IdentityNumber
+  );
+  // nom2Id / nom3Id reserved for when nominee 2 & 3 are added to the payload
+  void validateAndNormalizeNomineeIdentity(
+    2,
+    r.nominee2Name,
+    r.nominee2IdentityType,
+    r.nominee2IdentityNumber
+  );
+  void validateAndNormalizeNomineeIdentity(
+    3,
+    r.nominee3Name,
+    r.nominee3IdentityType,
+    r.nominee3IdentityNumber
+  );
+
   const payload = {
     reg_details: [
       {
@@ -89,9 +191,9 @@ export const buildUccPayloadFromUccRegistration = async (
         address_2: r.address2,
         address_3: r.address3,
         city: r.city,
-        state: r.state,
+        state: stateCode,
         pincode: r.pincode,
-        country: r.country,
+        country: normalizeCountry(r.country),
 
         // Personal
         gender: r.gender,
@@ -134,8 +236,8 @@ export const buildUccPayloadFromUccRegistration = async (
         nominee_1_applicable: r.nominee1Share,
         nominee_1_email: r.nominee1Email,
         nominee_1_mobile: r.nominee1Mobile,
-        nominee_1_identity_type: r.nominee1IdentityType,
-        nominee_1_identity_number: r.nominee1IdentityNumber,
+        nominee_1_identity_type: nom1Id.type,
+        nominee_1_identity_number: nom1Id.number,
         nominee_1_minor_flag: r.nominee1MinorFlag || "N",
         nominee_1_guardian: r.nominee1Guardian,
         nominee_1_address1: r.nominee1Address1,
@@ -143,7 +245,7 @@ export const buildUccPayloadFromUccRegistration = async (
         nominee_1_address3: r.nominee1Address3,
         nominee_1_city: r.nominee1City,
         nominee_1_pin: r.nominee1Pin,
-        nominee_1_country: r.nominee1Country,
+        nominee_1_country: normalizeCountry(r.nominee1Country),
       },
     ],
   };
@@ -166,19 +268,30 @@ export const uccRegistration = async (
       throw new Error("mobile is required to call UCC registration");
     }
 
-    // Step 1: Check if investor exists in InvestorRegistration by mobile (from request payload)
-    console.log("[uccRegistration] >>> InvestorRegistration lookup by reg_mobile =", mobile);
-    const investor = await InvestorRegistration.findOne({
-      where: { reg_mobile: mobile, isDelete: false },
-    });
-    console.log(
-      "[uccRegistration] >>> InvestorRegistration result:",
-      investor ? { id: investor.id, reg_mobile: investor.reg_mobile } : null
-    );
-
     let payload: any = null;
 
-    if (investor) {
+    // Step 1 (PRIMARY): Try UCCRegistration table by mobile — this holds the data the
+    // user just filled in via /nse/ucc/step-0..3 and is the most authoritative source.
+    console.log("[uccRegistration] >>> PRIMARY: looking up UCCRegistration by mobile =", mobile);
+    payload = await buildUccPayloadFromUccRegistration(undefined, mobile);
+
+    if (payload) {
+      console.log("✅ Built payload from UCCRegistration table");
+    } else {
+      console.log(
+        "⚠️ No UCCRegistration row for this mobile — falling back to InvestorRegistration raw SQL"
+      );
+
+      // Step 2 (FALLBACK): Older onboarding data via InvestorRegistration + joins
+      const investor = await InvestorRegistration.findOne({
+        where: { reg_mobile: mobile, isDelete: false },
+      });
+      console.log(
+        "[uccRegistration] >>> InvestorRegistration result:",
+        investor ? { id: investor.id, reg_mobile: investor.reg_mobile } : null
+      );
+
+      if (investor) {
       console.log("✅ Investor found in InvestorRegistration — using raw SQL path");
 
       // Step 2: Run raw SQL — match by mobile from request payload
@@ -298,17 +411,15 @@ export const uccRegistration = async (
           ],
         };
       } else {
-        // Investor row exists but join produced no row — fall through to UCCRegistration
+          console.log(
+            "⚠️ raw SQL returned 0 rows for this mobile"
+          );
+        }
+      } else {
         console.log(
-          "⚠️ raw SQL returned 0 rows even though investor exists — trying UCCRegistration fallback by mobile"
+          "❌ Investor not found in InvestorRegistration either"
         );
-        payload = await buildUccPayloadFromUccRegistration(undefined, mobile);
       }
-    } else {
-      console.log(
-        "❌ Investor not found in InvestorRegistration — using UCCRegistration table by mobile"
-      );
-      payload = await buildUccPayloadFromUccRegistration(undefined, mobile);
     }
 
     if (!payload) {
@@ -359,6 +470,27 @@ export const uccRegistration = async (
       throw new Error(
         `NSE UCC registration failed: ${responseData.reg_remark || responseData.reg_status}`
       );
+    }
+
+    // Mark UCCRegistration row as successfully created on NSE (ucc_created = 1)
+    if (responseData?.reg_status === "REG_SUCCESS") {
+      try {
+        const [updatedCount] = await UCCRegistration.update(
+          {
+            uccCreated: 1,
+            regId: responseData?.reg_id,
+            regStatus: responseData?.reg_status,
+            regRemark: responseData?.reg_remark,
+          },
+          { where: { indianMobileNo: mobile } }
+        );
+        console.log(
+          `[uccRegistration] >>> UCCRegistration.ucc_created flagged for mobile=${mobile}, rows updated =`,
+          updatedCount
+        );
+      } catch (flagErr) {
+        console.error("[uccRegistration] !!! Failed to flag ucc_created:", flagErr);
+      }
     }
 
     console.log("========== UCC Registration COMPLETED ==========");
@@ -857,8 +989,19 @@ export const nseMandatePurchase = async (regData: any[]) => {
   try {
     console.log("========== NSE Mandate Purchase STARTED ==========");
 
+    // Fix URL-encoded dates in the payload
+    const fixedRegData = regData.map(item => {
+      if (item.start_date && typeof item.start_date === 'string') {
+        item.start_date = item.start_date.replace(/#x2F/g, '/');
+      }
+      if (item.end_date && typeof item.end_date === 'string') {
+        item.end_date = item.end_date.replace(/#x2F/g, '/');
+      }
+      return item;
+    });
+
     const payload = {
-      reg_data: regData
+      reg_data: fixedRegData
     };
 
     console.log("Mandate Purchase payload:", JSON.stringify(payload, null, 2));
@@ -904,8 +1047,19 @@ export const nseMandateRedemption = async (regData: any[]) => {
   try {
     console.log("========== NSE Mandate Redemption STARTED ==========");
 
+    // Fix URL-encoded dates in the payload
+    const fixedRegData = regData.map(item => {
+      if (item.start_date && typeof item.start_date === 'string') {
+        item.start_date = item.start_date.replace(/#x2F/g, '/');
+      }
+      if (item.end_date && typeof item.end_date === 'string') {
+        item.end_date = item.end_date.replace(/#x2F/g, '/');
+      }
+      return item;
+    });
+
     const payload = {
-      reg_data: regData
+      reg_data: fixedRegData
     };
 
     console.log("Mandate Redemption payload:", JSON.stringify(payload, null, 2));
@@ -1149,6 +1303,261 @@ export const nseTwoFaReport = async (reportParams: any) => {
   }
 };
 
+// ══════════════════════════════════════════════════════════════
+//  NEW HANDLER FUNCTIONS FOR COMPLETE NSE MODULE
+// ══════════════════════════════════════════════════════════════
+
+import {
+  nseScheMasterDownloadApi,
+  nseGetLinkApi,
+  nseResendCommApi,
+  nseMandateStatusApi,
+  nsePurchasePaymentApi,
+  nseUpiStatusCheckApi,
+  nseSipCancellationApi,
+  nseXsipCancellationApi,
+  nseSwpCancellationApi,
+  nseXsipPauseApi,
+  nseFatcaUploadApi,
+  nseKycCheckApi,
+  nseClientAuthReportApi,
+  nseAofUploadApi,
+  nseAllotmentStatementApi,
+  nseRedemptionPayoutApi,
+} from "../../services/nse.service";
+
+// Scheme Master Download
+export const nseSchemeMasterDownload = async (fileType: string) => {
+  try {
+    console.log("========== NSE Scheme Master Download STARTED ==========");
+    const apiResponse = await nseScheMasterDownloadApi(fileType);
+    console.log("========== NSE Scheme Master Download COMPLETED ==========");
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE scheme master download error =", err);
+    throw err;
+  }
+};
+
+// Get Short URL Link
+export const nseGetLink = async (linkParams: any) => {
+  try {
+    console.log("========== NSE Get Link STARTED ==========");
+    const apiResponse = await nseGetLinkApi(linkParams);
+    console.log("NSE Get Link Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE get link error =", err);
+    throw err;
+  }
+};
+
+// Resend Communication
+export const nseResendComm = async (commParams: any) => {
+  try {
+    console.log("========== NSE Resend Comm STARTED ==========");
+    const apiResponse = await nseResendCommApi(commParams);
+    console.log("NSE Resend Comm Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE resend comm error =", err);
+    throw err;
+  }
+};
+
+// Mandate Status Report
+export const nseMandateStatus = async (statusParams: any) => {
+  try {
+    console.log("========== NSE Mandate Status STARTED ==========");
+    const apiResponse = await nseMandateStatusApi(statusParams);
+    console.log("NSE Mandate Status Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE mandate status error =", err);
+    throw err;
+  }
+};
+
+// Purchase Payment
+export const nsePurchasePayment = async (paymentParams: any) => {
+  try {
+    console.log("========== NSE Purchase Payment STARTED ==========");
+    const apiResponse = await nsePurchasePaymentApi(paymentParams);
+    console.log("NSE Purchase Payment Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE purchase payment error =", err);
+    throw err;
+  }
+};
+
+// UPI Status Check
+export const nseUpiStatusCheck = async (upiParams: any) => {
+  try {
+    console.log("========== NSE UPI Status Check STARTED ==========");
+    const apiResponse = await nseUpiStatusCheckApi(upiParams);
+    console.log("NSE UPI Status Check Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE UPI status check error =", err);
+    throw err;
+  }
+};
+
+// SIP Cancellation
+export const nseSipCancellation = async (canData: any[]) => {
+  try {
+    console.log("========== NSE SIP Cancellation STARTED ==========");
+    const apiResponse = await nseSipCancellationApi({ can_data: canData });
+    await NseCancellationLog.create({
+      cancellationType: "SIP",
+      clientCode: canData[0]?.client_code || "",
+      requestPayload: canData,
+      responsePayload: apiResponse,
+      status: apiResponse?.reg_data?.[0]?.can_status || "UNKNOWN",
+      remark: apiResponse?.reg_data?.[0]?.can_remark || "",
+    });
+    console.log("========== NSE SIP Cancellation COMPLETED ==========");
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE SIP cancellation error =", err);
+    throw err;
+  }
+};
+
+// XSIP Cancellation
+export const nseXsipCancellation = async (canData: any[]) => {
+  try {
+    console.log("========== NSE XSIP Cancellation STARTED ==========");
+    const apiResponse = await nseXsipCancellationApi({ can_data: canData });
+    await NseCancellationLog.create({
+      cancellationType: "XSIP",
+      clientCode: canData[0]?.client_code || "",
+      requestPayload: canData,
+      responsePayload: apiResponse,
+      status: apiResponse?.reg_data?.[0]?.can_status || "UNKNOWN",
+      remark: apiResponse?.reg_data?.[0]?.can_remark || "",
+    });
+    console.log("========== NSE XSIP Cancellation COMPLETED ==========");
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE XSIP cancellation error =", err);
+    throw err;
+  }
+};
+
+// SWP Cancellation
+export const nseSwpCancellation = async (canData: any[]) => {
+  try {
+    console.log("========== NSE SWP Cancellation STARTED ==========");
+    const apiResponse = await nseSwpCancellationApi({ can_data: canData });
+    await NseCancellationLog.create({
+      cancellationType: "SWP",
+      clientCode: canData[0]?.client_code || "",
+      requestPayload: canData,
+      responsePayload: apiResponse,
+      status: apiResponse?.reg_data?.[0]?.can_status || "UNKNOWN",
+      remark: apiResponse?.reg_data?.[0]?.can_remark || "",
+    });
+    console.log("========== NSE SWP Cancellation COMPLETED ==========");
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE SWP cancellation error =", err);
+    throw err;
+  }
+};
+
+// XSIP Pause/Resume
+export const nseXsipPause = async (pauseData: any[]) => {
+  try {
+    console.log("========== NSE XSIP Pause STARTED ==========");
+    const apiResponse = await nseXsipPauseApi({ pause_data: pauseData });
+    console.log("NSE XSIP Pause Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE XSIP pause error =", err);
+    throw err;
+  }
+};
+
+// FATCA Upload
+export const nseFatcaUpload = async (fatcaData: any) => {
+  try {
+    console.log("========== NSE FATCA Upload STARTED ==========");
+    const apiResponse = await nseFatcaUploadApi(fatcaData);
+    console.log("NSE FATCA Upload Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE FATCA upload error =", err);
+    throw err;
+  }
+};
+
+// KYC Check
+export const nseKycCheck = async (kycParams: any) => {
+  try {
+    console.log("========== NSE KYC Check STARTED ==========");
+    const apiResponse = await nseKycCheckApi(kycParams);
+    console.log("NSE KYC Check Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE KYC check error =", err);
+    throw err;
+  }
+};
+
+// Client Authorization Report
+export const nseClientAuthReport = async (reportParams: any) => {
+  try {
+    console.log("========== NSE Client Auth Report STARTED ==========");
+    const apiResponse = await nseClientAuthReportApi(reportParams);
+    console.log("NSE Client Auth Report Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE client auth report error =", err);
+    throw err;
+  }
+};
+
+// AOF Image Upload
+export const nseAofUpload = async (aofData: any) => {
+  try {
+    console.log("========== NSE AOF Upload STARTED ==========");
+    const apiResponse = await nseAofUploadApi(aofData);
+    console.log("NSE AOF Upload Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE AOF upload error =", err);
+    throw err;
+  }
+};
+
+// Allotment Statement
+export const nseAllotmentStatement = async (reportParams: any) => {
+  try {
+    console.log("========== NSE Allotment Statement STARTED ==========");
+    const apiResponse = await nseAllotmentStatementApi(reportParams);
+    console.log("NSE Allotment Statement Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE allotment statement error =", err);
+    throw err;
+  }
+};
+
+// Redemption Payout
+export const nseRedemptionPayout = async (reportParams: any) => {
+  try {
+    console.log("========== NSE Redemption Payout STARTED ==========");
+    const apiResponse = await nseRedemptionPayoutApi(reportParams);
+    console.log("NSE Redemption Payout Response:", apiResponse);
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE redemption payout error =", err);
+    throw err;
+  }
+};
+
 // ══════════════════════════════════════════
 //  STEP 0 — PAN & Aadhaar
 //  Logic: INSERT if mobile not found, else UPDATE
@@ -1169,6 +1578,7 @@ export const saveUCCStep0 = async (body: any) => {
       primary_holder_kyc_type,
       primary_holder_ckyc_number,
       aadhaar_updated,
+      aadhaar_no,
       mapin_id,
       address_1,
       address_2,
@@ -1195,6 +1605,7 @@ export const saveUCCStep0 = async (body: any) => {
     const step0Data = {
       investorId: investor_id,
       formStep: 0,
+      taxStatus: tax_status,
       primaryHolderPan: primary_holder_pan?.toUpperCase(),
       primaryHolderFirstName: primary_holder_first_name,
       primaryHolderMiddleName: primary_holder_middle_name,
@@ -1205,6 +1616,7 @@ export const saveUCCStep0 = async (body: any) => {
       primaryHolderKycType: primary_holder_kyc_type,
       primaryHolderCkycNumber: primary_holder_ckyc_number,
       aadhaarUpdated: aadhaar_updated || "Y",
+      aadhaarNo: aadhaar_no,
       mapinId: mapin_id,
       address1: address_1,
       address2: address_2,
@@ -1418,23 +1830,42 @@ export const saveUCCStep2 = async (body: any) => {
       };
     }
 
-    // Pull all nominee fields dynamically
-    const nomineeFields: Record<string, any> = {};
-    const nomineeKeys = [
-      "name", "relationship", "dob", "share", "email", "mobile",
-      "identity_type", "identity_number", "minor_flag", "guardian",
-      "guardian_pan", "same_address", "address1", "address2",
-      "address3", "pin", "city", "country",
-    ];
+    // Map snake_case nominee fields from body → camelCase Sequelize attributes.
+    // (Sequelize silently ignores unknown attribute names, so the snake_case
+    //  keys must be converted before calling .update().)
+    const snakeKeyToCamelSuffix: Record<string, string> = {
+      name: "Name",
+      relationship: "Relationship",
+      dob: "Dob",
+      share: "Share",
+      email: "Email",
+      mobile: "Mobile",
+      identity_type: "IdentityType",
+      identity_number: "IdentityNumber",
+      minor_flag: "MinorFlag",
+      guardian: "Guardian",
+      guardian_pan: "GuardianPan",
+      same_address: "SameAddress",
+      address1: "Address1",
+      address2: "Address2",
+      address3: "Address3",
+      pin: "Pin",
+      city: "City",
+      country: "Country",
+    };
 
+    const nomineeFields: Record<string, any> = {};
     [1, 2, 3].forEach((idx) => {
-      nomineeKeys.forEach((key) => {
-        const fieldName = `nominee_${idx}_${key}`;
-        if (body[fieldName] !== undefined) {
-          nomineeFields[fieldName] = body[fieldName];
+      Object.entries(snakeKeyToCamelSuffix).forEach(([snake, camelSuffix]) => {
+        const bodyKey = `nominee_${idx}_${snake}`;
+        if (body[bodyKey] !== undefined) {
+          const modelKey = `nominee${idx}${camelSuffix}`;
+          nomineeFields[modelKey] = body[bodyKey];
         }
       });
     });
+
+    console.log("[saveUCCStep2] >>> nominee fields to update:", nomineeFields);
 
     await existing.update({
       nominationOpt: body.nomination_opt,
