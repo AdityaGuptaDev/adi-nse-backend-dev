@@ -218,6 +218,12 @@ export interface UCCRegistrationAttributes {
   regStatus?: string | null;
   regRemark?: string | null;
 
+  // FATCA status — tracks the mandatory FATCA upload that must precede UCC
+  fatcaRegId?: string | null;
+  fatcaStatus?: string | null;
+  fatcaRemark?: string | null;
+  fatcaSubmittedAt?: Date | null;
+
   // Form progress tracking
   formStep?: number | null;
 
@@ -434,6 +440,10 @@ export class UCCRegistration
   declare regId: string | null;
   declare regStatus: string | null;
   declare regRemark: string | null;
+  declare fatcaRegId: string | null;
+  declare fatcaStatus: string | null;
+  declare fatcaRemark: string | null;
+  declare fatcaSubmittedAt: Date | null;
 
   declare formStep: number | null;
   declare uccCreated: number | null;
@@ -662,6 +672,12 @@ export class UCCRegistration
         regId: { type: DataTypes.STRING(50), allowNull: true, field: "reg_id" },
         regStatus: { type: DataTypes.STRING(20), allowNull: true, field: "reg_status" },
         regRemark: { type: DataTypes.STRING(500), allowNull: true, field: "reg_remark" },
+
+        // FATCA upload status — NSE requires FATCA to succeed before UCC.
+        fatcaRegId: { type: DataTypes.STRING(50), allowNull: true, field: "fatca_reg_id" },
+        fatcaStatus: { type: DataTypes.STRING(20), allowNull: true, field: "fatca_status" },
+        fatcaRemark: { type: DataTypes.STRING(500), allowNull: true, field: "fatca_remark" },
+        fatcaSubmittedAt: { type: DataTypes.DATE, allowNull: true, field: "fatca_submitted_at" },
 
         // Form progress tracking
         formStep: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: "form_step" },

@@ -875,6 +875,35 @@ export async function nseResendCommApi(payload: any): Promise<any> {
   }
 }
 
+// Scan Mandate Image Upload API
+// Doc: POST /nsemfdesk/api/v2/fileupload/MANDATEIMG
+// Uploads a base64 scan of the signed physical mandate form for an already
+// registered mandate. Only applicable for Physical (mandate_type "X").
+export async function nseMandateImageUploadApi(payload: {
+  client_code: string;
+  mandate_id: string;
+  file_name: string;
+  file_data: string;
+}): Promise<any> {
+  console.log("========== nseMandateImageUploadApi() STARTED ==========");
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/fileupload/MANDATEIMG`;
+  try {
+    // Don't log file_data (huge base64). Log metadata only.
+    console.log("Mandate Image Upload request:", {
+      client_code: payload.client_code,
+      mandate_id: payload.mandate_id,
+      file_name: payload.file_name,
+      file_data_length: payload.file_data?.length || 0,
+    });
+    const response = await axios.post(url, payload, { headers: getNseHeaders() });
+    console.log("NSE Mandate Image Upload Response:", response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error("NSE mandate image upload error:", error?.response?.data || error.message);
+    throw new Error(error.response?.data?.message || error.message || "NSE mandate image upload failed");
+  }
+}
+
 // Mandate Status Report API
 export async function nseMandateStatusApi(payload: any): Promise<any> {
   console.log("========== nseMandateStatusApi() STARTED ==========");

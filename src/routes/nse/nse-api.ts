@@ -25,9 +25,12 @@ import {
   saveUCCStep3,
   // New handlers
   nseSchemeMasterDownload,
+  resolveNseSchemeByIsin,
+  nseSchemeList,
   nseGetLink,
   nseResendComm,
   nseMandateStatus,
+  nseMandateImageUpload,
   nsePurchasePayment,
   nseUpiStatusCheck,
   nseSipCancellation,
@@ -1006,6 +1009,96 @@ router.get("/scheme-master", exportRateLimit, async (req, res) => {
   }
 });
 
+// Paginated + searchable NSE scheme list for the fund-explore "NSE mode".
+// Rows are shaped to mirror the Morningstar MFU response so the same table
+// can render either source without branching.
+router.get("/scheme/list", async (req, res) => {
+  try {
+    const result = await nseSchemeList({
+      page: req.query.page ? Number(req.query.page) : 1,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      search: (req.query.search as string) || "",
+      category: (req.query.category as string) || "",
+      amc: (req.query.amc as string) || "",
+      onlyPurchaseAllowed:
+        String(req.query.only_purchase_allowed || "true").toLowerCase() !== "false",
+    });
+    return sendEncryptedResponse(
+      res,
+      { status: "S", remark: "NSE scheme list fetched", data: result },
+      "nse-scheme-list"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "nse scheme list error", error });
+    serverError(res, error);
+  }
+});
+
+// Resolve a Morningstar ISIN to the matching NSE scheme row so the front-end
+// can hand the canonical NSE scheme_code to /nse-order-form. Backed by an
+// in-memory cache (1h TTL) over NSE MASTER_DOWNLOAD.
+router.get("/scheme/resolve-by-isin", async (req, res) => {
+  try {
+    const isin = (req.query.isin as string) || "";
+    const refresh = String(req.query.refresh || "").toLowerCase() === "true";
+    if (!isin || !/^[A-Z0-9]{10,12}$/i.test(isin.trim())) {
+      return sendEncryptedResponse(
+        res,
+        {
+          status: "F",
+          remark: "A valid ISIN is required",
+          data: null,
+        },
+        "scheme-resolve"
+      );
+    }
+
+    const match = await resolveNseSchemeByIsin(isin, refresh);
+    if (!match) {
+      return sendEncryptedResponse(
+        res,
+        {
+          status: "F",
+          remark: "This scheme is not available on NSE MF Desk for execution",
+          data: { isin: isin.trim().toUpperCase(), matched: false },
+        },
+        "scheme-resolve"
+      );
+    }
+
+    const purchaseAllowed =
+      (match.purchase_allowed || "").toUpperCase() === "Y";
+
+    return sendEncryptedResponse(
+      res,
+      {
+        status: "S",
+        remark: "Scheme resolved successfully",
+        data: {
+          matched: true,
+          purchase_allowed: purchaseAllowed,
+          scheme_code: match.scheme_code || "",
+          scheme_name: match.scheme_name || "",
+          amc_code: match.amc_code || "",
+          amc_name: match.amc_name || "",
+          isin: match.isin || "",
+          sub_category: match.sub_category || "",
+          scheme_type: match.scheme_type || "",
+          min_purchase_amount: match.min_purchase_amount || "",
+          nav: match.nav || "",
+          nav_date: match.nav_date || "",
+          sip_allowed: match.sip_allowed || "",
+          redemption_allowed: match.redemption_allowed || "",
+        },
+      },
+      "scheme-resolve"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "nse scheme resolve error", error });
+    serverError(res, error);
+  }
+});
+
 // Get Short URL Link
 router.post("/get-link", financialRateLimit, async (req, res) => {
   try {
@@ -1024,6 +1117,94 @@ router.post("/resend-comm", financialRateLimit, async (req, res) => {
     sendEncryptedResponse(res, { status: "S", remark: "Communication resent", data: response }, "resend-comm");
   } catch (error) {
     ErrorLogger.write({ type: "nse resend-comm error", error });
+    serverError(res, error);
+  }
+});
+
+// Scan Mandate Image Upload (Physical mandate only)
+router.post("/mandate-image-upload", financialRateLimit, async (req, res) => {
+  try {
+    const { client_code, mandate_id, file_name, file_data } = req.body || {};
+
+    // Validation per NSE doc — all four fields are mandatory.
+    if (!client_code || typeof client_code !== "string") {
+      return res.status(400).json({ success: false, message: "client_code is required" });
+    }
+    if (client_code.length > 10) {
+      return res.status(400).json({
+        success: false,
+        message: "client_code must be <= 10 characters (NSE UCC limit)",
+      });
+    }
+    if (!mandate_id || typeof mandate_id !== "string") {
+      return res.status(400).json({ success: false, message: "mandate_id is required" });
+    }
+    if (!/^\d{1,15}$/.test(mandate_id)) {
+      return res.status(400).json({
+        success: false,
+        message: "mandate_id must be numeric, up to 15 digits",
+      });
+    }
+    if (!file_name || typeof file_name !== "string") {
+      return res.status(400).json({ success: false, message: "file_name is required" });
+    }
+    if (file_name.length > 30) {
+      return res.status(400).json({
+        success: false,
+        message: "file_name must be <= 30 characters",
+      });
+    }
+    if (!/\.(jpg|jpeg|png|pdf|tiff|tif)$/i.test(file_name)) {
+      return res.status(400).json({
+        success: false,
+        message: "file_name must end with .jpg, .jpeg, .png, .pdf, .tiff or .tif",
+      });
+    }
+    if (!file_data || typeof file_data !== "string") {
+      return res.status(400).json({ success: false, message: "file_data is required" });
+    }
+    // The request pipeline escapes "/" to "#x2F" (same quirk the mandate-purchase
+    // handler already works around). Base64 uses "/" as a valid character, so we
+    // MUST un-escape before validating or forwarding to NSE.
+    let cleanedFileData = file_data.replace(/#x2F/g, "/");
+    // Strip data URI prefix if the client accidentally sent it.
+    cleanedFileData = cleanedFileData.replace(/^data:[^;]+;base64,/, "");
+    // Remove any stray whitespace / newlines the reader may have introduced.
+    cleanedFileData = cleanedFileData.replace(/\s+/g, "");
+    // Reject anything that isn't valid base64.
+    if (!/^[A-Za-z0-9+/=]+$/.test(cleanedFileData)) {
+      return res.status(400).json({
+        success: false,
+        message: "file_data must be a valid base64 string",
+      });
+    }
+    // Rough size guard — 4 MB ≈ 5.6 MB of base64.
+    const MAX_BASE64_BYTES = 6 * 1024 * 1024;
+    if (cleanedFileData.length > MAX_BASE64_BYTES) {
+      return res.status(400).json({
+        success: false,
+        message: "file_data too large (max ~4 MB image)",
+      });
+    }
+
+    const response = await nseMandateImageUpload({
+      client_code,
+      mandate_id,
+      file_name,
+      file_data: cleanedFileData,
+    });
+
+    sendEncryptedResponse(
+      res,
+      {
+        status: response?.status === "100" ? "S" : "F",
+        remark: response?.message || "Mandate image upload processed",
+        data: response,
+      },
+      "mandate-image-upload"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "nse mandate-image-upload error", error });
     serverError(res, error);
   }
 });
@@ -1155,10 +1336,96 @@ router.post("/client-auth-report", exportRateLimit, async (req, res) => {
 });
 
 // AOF Image Upload
+// Doc: POST /nsemfdesk/api/v2/fileupload/AOFIMG
+// Body: { client_code, file_name, document_type ("NRM"|"RIA"), file_data (base64) }
 router.post("/aof-upload", financialRateLimit, async (req, res) => {
   try {
-    const response = await nseAofUpload(req.body);
-    sendEncryptedResponse(res, { status: "S", remark: "AOF uploaded", data: response }, "aof-upload");
+    const { client_code, file_name, document_type, file_data } = req.body || {};
+
+    if (!client_code || typeof client_code !== "string") {
+      return res.status(400).json({ success: false, message: "client_code is required" });
+    }
+    if (client_code.length > 10) {
+      return res.status(400).json({
+        success: false,
+        message: "client_code must be <= 10 characters (NSE UCC limit)",
+      });
+    }
+    if (!file_name || typeof file_name !== "string") {
+      return res.status(400).json({ success: false, message: "file_name is required" });
+    }
+    if (file_name.length > 40) {
+      return res.status(400).json({
+        success: false,
+        message: "file_name must be <= 40 characters",
+      });
+    }
+    // NSE AOFIMG only accepts .jpg / .jpeg per spec sample. It also rejects
+    // filenames containing uppercase or special characters — we normalize here.
+    if (!/\.(jpg|jpeg)$/i.test(file_name)) {
+      return res.status(400).json({
+        success: false,
+        message: "file_name must end with .jpg or .jpeg (NSE AOF accepts JPEG only)",
+      });
+    }
+    const docType = (document_type || "NRM").toString().toUpperCase();
+    if (!["NRM", "RIA"].includes(docType)) {
+      return res.status(400).json({
+        success: false,
+        message: "document_type must be NRM or RIA",
+      });
+    }
+    if (!file_data || typeof file_data !== "string") {
+      return res.status(400).json({ success: false, message: "file_data is required" });
+    }
+
+    // The PII-decrypt middleware escapes "/" to "#x2F" — base64 uses "/" as a
+    // valid character, so we MUST un-escape before validating or forwarding.
+    let cleanedFileData = file_data.replace(/#x2F/g, "/");
+    cleanedFileData = cleanedFileData.replace(/^data:[^;]+;base64,/, "");
+    cleanedFileData = cleanedFileData.replace(/\s+/g, "");
+    if (!/^[A-Za-z0-9+/=]+$/.test(cleanedFileData)) {
+      return res.status(400).json({
+        success: false,
+        message: "file_data must be a valid base64 string",
+      });
+    }
+    const MAX_BASE64_BYTES = 6 * 1024 * 1024;
+    if (cleanedFileData.length > MAX_BASE64_BYTES) {
+      return res.status(400).json({
+        success: false,
+        message: "file_data too large (max ~4 MB image)",
+      });
+    }
+
+    // Sanitize: lowercase, replace any non-[a-z0-9._-] with "_", collapse
+    // runs, and force a ".jpg" extension so NSE doesn't complain.
+    const base = file_name.replace(/\.(jpg|jpeg)$/i, "");
+    const sanitizedBase = base
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 30) || "aof_image";
+    const sanitizedFileName = `${sanitizedBase}.jpg`;
+
+    const response = await nseAofUpload({
+      client_code,
+      file_name: sanitizedFileName,
+      document_type: docType,
+      file_data: cleanedFileData,
+    });
+
+    // NSE returns { status: "100", message: "Image Uploaded Successfully." } on success.
+    sendEncryptedResponse(
+      res,
+      {
+        status: response?.status === "100" ? "S" : "F",
+        remark: response?.message || "AOF upload processed",
+        data: response,
+      },
+      "aof-upload"
+    );
   } catch (error) {
     ErrorLogger.write({ type: "nse aof-upload error", error });
     serverError(res, error);
@@ -1239,6 +1506,10 @@ router.get("/ucc/investor-list", async (req, res) => {
         "regId",
         "regStatus",
         "regRemark",
+        "fatcaRegId",
+        "fatcaStatus",
+        "fatcaRemark",
+        "fatcaSubmittedAt",
         "createdAt",
         "updatedAt",
         // Bank 1
@@ -1321,6 +1592,11 @@ router.get("/ucc/investor-list", async (req, res) => {
         reg_id: row.regId,
         reg_status: row.regStatus,
         reg_remark: row.regRemark,
+        fatca_reg_id: row.fatcaRegId,
+        fatca_status: row.fatcaStatus,
+        fatca_remark: row.fatcaRemark,
+        fatca_uploaded: row.fatcaStatus === "REG_SUCCESS",
+        fatca_submitted_at: row.fatcaSubmittedAt,
         created_at: row.createdAt,
         updated_at: row.updatedAt,
         // Bank details

@@ -253,6 +253,162 @@ export const buildUccPayloadFromUccRegistration = async (
   return payload;
 };
 
+// One-time lazy ALTER TABLE — guarantees the fatca_* columns exist on the
+// UCCRegistration table regardless of how old the DB is, without requiring a
+// separate migration step. Idempotent thanks to `ADD COLUMN IF NOT EXISTS`.
+let fatcaColumnsChecked = false;
+const ensureFatcaColumns = async () => {
+  if (fatcaColumnsChecked) return;
+  try {
+    await db.query(`
+      ALTER TABLE "UCCRegistration"
+        ADD COLUMN IF NOT EXISTS fatca_reg_id VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS fatca_status VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS fatca_remark VARCHAR(500),
+        ADD COLUMN IF NOT EXISTS fatca_submitted_at TIMESTAMP WITH TIME ZONE;
+    `);
+    fatcaColumnsChecked = true;
+    console.log("[ensureFatcaColumns] >>> fatca_* columns verified/created");
+  } catch (err) {
+    console.error("[ensureFatcaColumns] !!! failed:", err);
+    // Don't block the request — FATCA chain will still run, only persistence
+    // of the status will fail silently if the column really isn't there.
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// FATCA payload builder — NSE requires FATCA to be submitted BEFORE the UCC
+// CLIENTCOMMON183 call. The FATCA fields come from the same UCCRegistration
+// row that Step 1 of the create-UCC form fills in (city_of_birth,
+// country_of_birth, pep_status, tax_residency_country, wealth_source,
+// annual_income, occupation_code, etc.), plus static defaults that match the
+// existing "Submit FATCA" modal in the investor list.
+// ════════════════════════════════════════════════════════════════════════════
+export const buildFatcaPayloadFromUccRegistrationRow = (
+  row: UCCRegistration
+): any => {
+  // ISO-2 country code helper. NSE's FATCA API wants 2-char country codes
+  // (IN, US, …) not full country names.
+  const toIso2 = (v: any): string => {
+    const s = (v ?? "").toString().trim().toUpperCase();
+    if (!s) return "IN";
+    if (s.length === 2) return s;
+    // Map the names we see most often back to ISO-2. Everything else falls
+    // back to "IN" — NSE will reject unknown codes and the user will see it.
+    const MAP: Record<string, string> = {
+      INDIA: "IN",
+      "UNITED STATES": "US",
+      USA: "US",
+      "UNITED KINGDOM": "GB",
+      UK: "GB",
+      CANADA: "CA",
+      AUSTRALIA: "AU",
+      SINGAPORE: "SG",
+      UAE: "AE",
+      "UNITED ARAB EMIRATES": "AE",
+    };
+    return MAP[s] || s.slice(0, 2);
+  };
+
+  const fullName = [
+    row.primaryHolderFirstName,
+    row.primaryHolderMiddleName,
+    row.primaryHolderLastName,
+  ]
+    .map((p) => (p || "").toString().trim())
+    .filter(Boolean)
+    .join(" ");
+
+  const poBirInc = (row.cityOfBirth || "").toString().trim();
+  const coBirInc = toIso2(row.countryOfBirth || "INDIA");
+  const taxRes1 = toIso2(row.taxResidencyCountry || "INDIA");
+
+  // NSE FATCA reg_details shape — mirrors the one used by the manual "Submit
+  // FATCA" modal in the investor list so the backend is the single source of
+  // truth for defaults.
+  return {
+    reg_details: [
+      {
+        pan_rp: row.primaryHolderPan || "",
+        pekrn: "",
+        inv_name: fullName || "",
+        dob: formatDobForNse(row.primaryHolderDobIncorporation) || "",
+        fr_name: "",
+        sp_name: "",
+        tax_status: row.taxStatus || "01",
+        data_src: "E",
+        addr_type: row.addressType || "1",
+        po_bir_inc: poBirInc,
+        co_bir_inc: coBirInc,
+        tax_res1: taxRes1,
+        tpin1: row.primaryHolderPan || "",
+        id1_type: "C",
+        tax_res2: "",
+        tpin2: "",
+        id2_type: "",
+        tax_res3: "",
+        tpin3: "",
+        id3_type: "",
+        tax_res4: "",
+        tpin4: "",
+        id4_type: "",
+        srce_wealt: row.wealthSource || "01",
+        corp_servs: "",
+        inc_slab: row.annualIncome || "31",
+        net_worth: "",
+        nw_date: "",
+        pep_flag: row.pepStatus || "N",
+        occ_code: row.occupationCode || "01",
+        occ_type: "B",
+        exemp_code: "",
+        ffi_drnfe: "",
+        giin_no: "",
+        spr_entity: "",
+        giin_na: "",
+        giin_exemc: "",
+        nffe_catg: "",
+        act_nfe_sc: "",
+        nature_bus: "",
+        rel_listed: "",
+        exch_name: "O",
+        ubo_appl: "N",
+        ubo_count: "",
+        ubo_name: "",
+        ubo_pan: "",
+        ubo_nation: "",
+        ubo_add1: "",
+        ubo_add2: "",
+        ubo_add3: "",
+        ubo_city: "",
+        ubo_pin: "",
+        ubo_state: "",
+        ubo_cntry: "",
+        ubo_add_ty: "",
+        ubo_ctr: "",
+        ubo_tin: "",
+        ubo_id_ty: "",
+        ubo_cob: "",
+        ubo_dob: "",
+        ubo_gender: "",
+        ubo_fr_nam: "",
+        ubo_occ: "",
+        ubo_occ_ty: "",
+        ubo_tel: "",
+        ubo_mobile: "",
+        ubo_code: "",
+        ubo_hol_pc: "",
+        sdf_flag: "Y",
+        ubo_df: "N",
+        aadhaar_rp: "",
+        new_change: "",
+        log_name: "",
+        filler1: "",
+        filler2: "",
+      },
+    ],
+  };
+};
+
 export const uccRegistration = async (
   mobile: string,
   userType: number
@@ -263,6 +419,10 @@ export const uccRegistration = async (
       mobile,
       userType,
     });
+
+    // Lazily ensure the fatca_* tracking columns exist. No-op after the
+    // first call in the process.
+    await ensureFatcaColumns();
 
     if (!mobile) {
       throw new Error("mobile is required to call UCC registration");
@@ -428,7 +588,89 @@ export const uccRegistration = async (
       throw new Error(msg);
     }
 
-    // Step 3: Call NSE API
+    // ════════════════════════════════════════════════════════════════════════
+    // NSE REQUIREMENT: FATCA must be uploaded BEFORE UCC registration. If the
+    // FATCA row for this UCC has already succeeded we skip it (idempotent on
+    // retries after a transient UCC failure). Only rows coming from the
+    // UCCRegistration table path have the FATCA columns we need; the raw-SQL
+    // InvestorRegistration fallback path silently skips FATCA since those
+    // investors are legacy and may already have FATCA on file via a different
+    // flow.
+    // ════════════════════════════════════════════════════════════════════════
+    const uccRow = await UCCRegistration.findOne({
+      where: { indianMobileNo: mobile },
+    });
+
+    if (uccRow) {
+      const alreadyDone =
+        uccRow.fatcaStatus === "REG_SUCCESS" ||
+        uccRow.regStatus === "REG_SUCCESS"; // old rows created before we tracked fatcaStatus
+      if (alreadyDone) {
+        console.log(
+          "[uccRegistration] >>> FATCA already SUCCESS for this UCC — skipping re-upload"
+        );
+      } else {
+        console.log("[uccRegistration] >>> FATCA upload STARTED");
+        const fatcaPayload = buildFatcaPayloadFromUccRegistrationRow(uccRow);
+        console.log(
+          "[uccRegistration] >>> FATCA payload:",
+          JSON.stringify(fatcaPayload, null, 2)
+        );
+
+        let fatcaResponse: any;
+        try {
+          fatcaResponse = await nseFatcaUploadApi(fatcaPayload);
+        } catch (fatcaErr: any) {
+          console.error(
+            "[uccRegistration] !!! FATCA API call FAILED:",
+            fatcaErr?.message
+          );
+          throw new Error(
+            `NSE FATCA upload failed before UCC registration: ${
+              fatcaErr?.message || String(fatcaErr)
+            }`
+          );
+        }
+
+        const fatcaReg = fatcaResponse?.reg_details?.[0] || {};
+        const fatcaStatus: string | null = fatcaReg.reg_status || null;
+        const fatcaRemark: string | null =
+          fatcaReg.reg_remark || fatcaResponse?.message || null;
+        const fatcaRegIdVal: string | null = fatcaReg.reg_id || null;
+
+        // Persist — wrapped in try/catch because the fatca_* columns may not
+        // yet exist on older databases. The chain must still work.
+        try {
+          await UCCRegistration.update(
+            {
+              fatcaRegId: fatcaRegIdVal,
+              fatcaStatus: fatcaStatus,
+              fatcaRemark: fatcaRemark,
+              fatcaSubmittedAt: new Date(),
+            },
+            { where: { indianMobileNo: mobile } }
+          );
+        } catch (persistErr) {
+          console.error(
+            "[uccRegistration] !!! Failed to persist FATCA status (missing columns?):",
+            persistErr
+          );
+        }
+
+        if (fatcaStatus && fatcaStatus !== "REG_SUCCESS") {
+          throw new Error(
+            `NSE FATCA upload rejected — ${fatcaRemark || fatcaStatus}. UCC not attempted.`
+          );
+        }
+        console.log("[uccRegistration] >>> FATCA upload COMPLETED with status =", fatcaStatus);
+      }
+    } else {
+      console.log(
+        "[uccRegistration] >>> No UCCRegistration row for this mobile — skipping FATCA chain (legacy fallback path)"
+      );
+    }
+
+    // Step 3: Call NSE UCC API
     payloadForLog = payload;
     console.log("[uccRegistration] >>> payload built, about to POST to NSE...");
     console.log("[uccRegistration] >>> payload:", JSON.stringify(payload, null, 2));
@@ -1312,6 +1554,7 @@ import {
   nseGetLinkApi,
   nseResendCommApi,
   nseMandateStatusApi,
+  nseMandateImageUploadApi,
   nsePurchasePaymentApi,
   nseUpiStatusCheckApi,
   nseSipCancellationApi,
@@ -1339,6 +1582,276 @@ export const nseSchemeMasterDownload = async (fileType: string) => {
   }
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// NSE Scheme Resolver by ISIN
+//
+// Purpose: Fund-Explore shows schemes from Morningstar (keyed by schemeISIN).
+// NSE's transaction API executes on scheme_code. To guarantee the scheme a
+// user picked on Morningstar is the exact scheme executed on NSE, we resolve
+// the ISIN → NSE scheme_code against NSE's MASTER_DOWNLOAD feed before
+// navigating to the order form.
+//
+// The full MASTER_DOWNLOAD response is ~several MB of pipe-separated text, so
+// we cache the parsed map in-memory for 1 hour. On cache miss the next
+// request transparently refreshes it.
+// ════════════════════════════════════════════════════════════════════════════
+interface NseSchemeRow {
+  scheme_code: string;
+  scheme_name: string;
+  amc_code: string;
+  amc_name: string;
+  isin: string;
+  sub_category: string;
+  scheme_type: string;
+  purchase_allowed: string;
+  redemption_allowed: string;
+  sip_allowed: string;
+  min_purchase_amount: string;
+  nav: string;
+  nav_date: string;
+  // Keep the raw row so callers can pick additional columns if needed.
+  [k: string]: string;
+}
+
+const SCHEME_MASTER_TTL_MS = 60 * 60 * 1000; // 1 hour
+let schemeMasterCache: {
+  rows: NseSchemeRow[];
+  byIsin: Map<string, NseSchemeRow>;
+  fetchedAt: number;
+} | null = null;
+
+// Parses whatever shape NSE returns (pipe-separated text OR JSON array) into
+// a normalized array of NseSchemeRow. Header keys are lowercased and spaces
+// → underscores so downstream code can trust a fixed field shape.
+const parseSchemeMasterResponse = (raw: any): NseSchemeRow[] => {
+  if (!raw) return [];
+
+  const normalizeKey = (k: string) =>
+    k.trim().toLowerCase().replace(/\s+/g, "_");
+
+  const normalizeRow = (row: Record<string, any>): NseSchemeRow => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(row)) {
+      out[normalizeKey(k)] = v == null ? "" : String(v).trim();
+    }
+    return out as NseSchemeRow;
+  };
+
+  if (typeof raw === "string") {
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 2) return [];
+    const header = lines[0].split("|").map(normalizeKey);
+    return lines.slice(1).map((line) => {
+      const cols = line.split("|");
+      const obj: Record<string, string> = {};
+      header.forEach((h, i) => {
+        obj[h] = (cols[i] || "").trim();
+      });
+      return obj as NseSchemeRow;
+    });
+  }
+
+  if (Array.isArray(raw)) {
+    return raw.map(normalizeRow);
+  }
+
+  return [];
+};
+
+const buildIsinIndex = (rows: NseSchemeRow[]): Map<string, NseSchemeRow> => {
+  const map = new Map<string, NseSchemeRow>();
+  for (const row of rows) {
+    const isin = (row.isin || "").toString().trim().toUpperCase();
+    if (!isin) continue;
+    // If NSE has multiple rows for the same ISIN (rare — Growth/IDCW splits),
+    // prefer the one that's purchase-allowed.
+    const existing = map.get(isin);
+    if (!existing) {
+      map.set(isin, row);
+      continue;
+    }
+    const prevAllowed = (existing.purchase_allowed || "").toUpperCase() === "Y";
+    const nextAllowed = (row.purchase_allowed || "").toUpperCase() === "Y";
+    if (!prevAllowed && nextAllowed) map.set(isin, row);
+  }
+  return map;
+};
+
+const loadSchemeMasterWithCache = async (
+  forceRefresh = false
+): Promise<{ rows: NseSchemeRow[]; byIsin: Map<string, NseSchemeRow> }> => {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    schemeMasterCache &&
+    now - schemeMasterCache.fetchedAt < SCHEME_MASTER_TTL_MS
+  ) {
+    return {
+      rows: schemeMasterCache.rows,
+      byIsin: schemeMasterCache.byIsin,
+    };
+  }
+
+  console.log(
+    "[loadSchemeMasterWithCache] >>> cache miss — fetching NSE MASTER_DOWNLOAD"
+  );
+  const raw = await nseScheMasterDownloadApi("SCH");
+  const rows = parseSchemeMasterResponse(raw);
+  const byIsin = buildIsinIndex(rows);
+  schemeMasterCache = { rows, byIsin, fetchedAt: now };
+  console.log(
+    `[loadSchemeMasterWithCache] >>> cached ${rows.length} rows / ${byIsin.size} unique ISINs`
+  );
+  return { rows, byIsin };
+};
+
+export const resolveNseSchemeByIsin = async (
+  isin: string,
+  forceRefresh = false
+): Promise<NseSchemeRow | null> => {
+  const normalized = (isin || "").trim().toUpperCase();
+  if (!normalized) return null;
+
+  let { byIsin } = await loadSchemeMasterWithCache(forceRefresh);
+  let match = byIsin.get(normalized) || null;
+
+  // Cache-miss safety: if the requested ISIN isn't in a stale cache, force a
+  // refresh once in case NSE just added the scheme. Avoids a thundering herd
+  // on truly unknown ISINs because we only retry when the cache exists.
+  if (!match && !forceRefresh && schemeMasterCache) {
+    ({ byIsin } = await loadSchemeMasterWithCache(true));
+    match = byIsin.get(normalized) || null;
+  }
+  return match;
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// NSE Scheme List — server-side paginated / filtered view on the cached
+// MASTER_DOWNLOAD feed. Returns rows in a shape that matches the MFU
+// fund-explore table so the same UI can render both data sources with zero
+// branching in the render layer.
+// ════════════════════════════════════════════════════════════════════════════
+export interface NseSchemeListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  category?: string;
+  amc?: string;
+  onlyPurchaseAllowed?: boolean;
+}
+
+export const nseSchemeList = async (params: NseSchemeListParams) => {
+  const page = Math.max(1, Number(params.page) || 1);
+  const limit = Math.min(200, Math.max(1, Number(params.limit) || 50));
+  const search = (params.search || "").toString().trim().toLowerCase();
+  const category = (params.category || "").toString().trim().toLowerCase();
+  const amc = (params.amc || "").toString().trim().toLowerCase();
+  const onlyPurchaseAllowed = params.onlyPurchaseAllowed !== false;
+
+  const { rows } = await loadSchemeMasterWithCache(false);
+
+  // Filtering
+  const filtered = rows.filter((r) => {
+    if (onlyPurchaseAllowed && (r.purchase_allowed || "").toUpperCase() !== "Y") {
+      return false;
+    }
+    if (category && (r.sub_category || "").toLowerCase() !== category) {
+      return false;
+    }
+    if (amc && (r.amc_name || "").toLowerCase() !== amc) {
+      return false;
+    }
+    if (search) {
+      const hay = [
+        r.scheme_name,
+        r.amc_name,
+        r.scheme_code,
+        r.isin,
+      ]
+        .map((v) => (v || "").toString().toLowerCase())
+        .join(" | ");
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  // Unique sub_category list for the filter dropdown (unfiltered universe)
+  const categories = Array.from(
+    new Set(
+      rows
+        .map((r) => (r.sub_category || "").trim())
+        .filter((s) => s.length > 0)
+    )
+  ).sort();
+
+  // Sort alphabetically by scheme_name so the UI is stable.
+  filtered.sort((a, b) =>
+    (a.scheme_name || "").localeCompare(b.scheme_name || "")
+  );
+
+  const total = filtered.length;
+  const offset = (page - 1) * limit;
+  const page_rows = filtered.slice(offset, offset + limit);
+
+  // Shape each row to look like a Morningstar `SchemeMaster` row so the
+  // existing fund-explore table can render without conditional reads.
+  const normalized = page_rows.map((r) => {
+    const navValue = parseFloat(r.nav || "");
+    const performance = {
+      Nav: Number.isFinite(navValue) ? navValue : null,
+      AUM: null,
+      OverallRating: null,
+      Return1d: null,
+      Return1w: null,
+      Return1mth: null,
+      Return3mth: null,
+      Return6mth: null,
+      Return1yr: null,
+      Return2yr: null,
+      Return3yr: null,
+      Return5yr: null,
+      Return7yr: null,
+      Return10yr: null,
+    };
+    return {
+      // Primary keys
+      id: r.scheme_code,
+      schemeISIN: r.isin,
+      // Display fields
+      name: r.scheme_name,
+      ms_fullname: r.scheme_name,
+      net_expense_ratio: null,
+      // Joins the MFU table expects
+      AMCMaster: {
+        id: null,
+        name: r.amc_name || "",
+        amc_logo: null,
+      },
+      SchemeCategory: { Name: r.sub_category || "" },
+      SchemeSubcategory: { Name: r.sub_category || "" },
+      SchemePerformances: [performance],
+      // NSE-specific extras the Transact button needs
+      nse_scheme_code: r.scheme_code,
+      nse_amc_code: r.amc_code,
+      nse_min_purchase_amount: r.min_purchase_amount,
+      nse_purchase_allowed: (r.purchase_allowed || "").toUpperCase() === "Y",
+      nse_sip_allowed: (r.sip_allowed || "").toUpperCase() === "Y",
+      nse_scheme_type: r.scheme_type,
+      _source: "NSE" as const,
+    };
+  });
+
+  return {
+    rows: normalized,
+    count: total,
+    page,
+    limit,
+    total_pages: Math.ceil(total / limit),
+    categories,
+    source: "NSE",
+  };
+};
+
 // Get Short URL Link
 export const nseGetLink = async (linkParams: any) => {
   try {
@@ -1361,6 +1874,45 @@ export const nseResendComm = async (commParams: any) => {
     return apiResponse;
   } catch (err) {
     console.log("NSE resend comm error =", err);
+    throw err;
+  }
+};
+
+// Scan Mandate Image Upload
+export const nseMandateImageUpload = async (uploadParams: {
+  client_code: string;
+  mandate_id: string;
+  file_name: string;
+  file_data: string;
+}) => {
+  try {
+    console.log("========== NSE Mandate Image Upload STARTED ==========");
+    const apiResponse = await nseMandateImageUploadApi(uploadParams);
+
+    // Update the mandate log with upload outcome if a matching row exists.
+    try {
+      const uploadStatus = apiResponse?.status === "100" ? "UPLOADED" : "UPLOAD_FAILED";
+      const uploadRemark = apiResponse?.message || "";
+      await NseMandateLog.update(
+        {
+          status: uploadStatus,
+          remark: uploadRemark,
+        },
+        {
+          where: {
+            clientCode: uploadParams.client_code,
+            regId: uploadParams.mandate_id,
+          },
+        }
+      );
+    } catch (dbErr) {
+      console.log("NseMandateLog update on image upload failed:", dbErr);
+    }
+
+    console.log("========== NSE Mandate Image Upload COMPLETED ==========");
+    return apiResponse;
+  } catch (err) {
+    console.log("NSE mandate image upload error =", err);
     throw err;
   }
 };
