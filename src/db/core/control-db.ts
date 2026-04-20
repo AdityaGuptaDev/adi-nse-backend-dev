@@ -33,23 +33,23 @@ const authenticate = () => {
 };
 authenticate();
 
-const syncControlledDB = () => {
-  db.sync({ force: false })
-    .then(async () => {
-      try {
-        await runSeeders(db);
-        //await seedMenu(db);
-      } catch (error) {
-        console.log(error);
-      }
-      // await seedUser(db);
-      console.log(`model synced for control DB`);
-    })
-    .catch((err) => {
-      console.log(err, "error in synccc");
-    });
-};
-//syncControlledDB();
+// const syncControlledDB = () => {
+//   db.sync({ force: false })
+//     .then(async () => {
+//       try {
+//         await runSeeders(db);
+//         //await seedMenu(db);
+//       } catch (error) {
+//         console.log(error);
+//       }
+//       // await seedUser(db);
+//       console.log(`model synced for control DB`);
+//     })
+//     .catch((err) => {
+//       console.log(err, "error in synccc");
+//     });
+// };
+// syncControlledDB();
 
 export default db;
 

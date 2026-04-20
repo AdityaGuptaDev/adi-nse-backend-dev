@@ -42,8 +42,8 @@ app.use(bodyParser.json({ limit: '50mb' }));
 
 // Global security monitoring
 app.use(rateLimitMiddleware); // Rate limiting
-app.use(sanitizeInput); // Input sanitization
-app.use(piiDecryptMiddleware); // Decrypt PII fields encrypted by frontend
+app.use(piiDecryptMiddleware); // Decrypt PII fields encrypted by frontend (MUST run BEFORE sanitization)
+app.use(sanitizeInput); // Input sanitization (runs AFTER PII decryption so Base64 ciphertext is not corrupted)
 app.use(cors())
 /*app.use(cors({
   origin: process.env.NODE_ENV === 'production'

@@ -25,11 +25,11 @@ const formatDobForNse = (val: any): string => {
 
   // Already DD-MM-YYYY or DD/MM/YYYY
   let m = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m) return `${m[1]}/${m[2]}/${m[3]}`;
 
   // YYYY-MM-DD or YYYY/MM/DD (optionally followed by time)
   m = s.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
 
   // Last resort: try Date parsing
   const d = new Date(s);
@@ -37,11 +37,26 @@ const formatDobForNse = (val: any): string => {
     const dd = String(d.getDate()).padStart(2, "0");
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const yyyy = d.getFullYear();
-    return `${dd}-${mm}-${yyyy}`;
+    return `${dd}/${mm}/${yyyy}`;
   }
 
   console.warn("[formatDobForNse] !!! could not parse date:", val);
   return "";
+};
+
+// ── Helper: Map UCC annual_income code → FATCA inc_slab code ──
+// UCC codes: 01=Below1L, 02=1-5L, 03=5-10L, 04=10-25L, 05=25L-1Cr, 06=>1Cr
+// FATCA codes: 31=Below1L, 32=1-5L, 33=5-10L, 34=10-25L, 35=25L-1Cr, 36=>1Cr
+const mapAnnualIncomeToFatcaSlab = (uccCode: string | null | undefined): string => {
+  const map: Record<string, string> = {
+    "01": "31",
+    "02": "32",
+    "03": "33",
+    "04": "34",
+    "05": "35",
+    "06": "36",
+  };
+  return map[uccCode || ""] || "31";
 };
 
 // ── Helper: Resolve state name/code → NSE bse_code (2-char code) ──
@@ -354,7 +369,7 @@ export const buildFatcaPayloadFromUccRegistrationRow = (
         id4_type: "",
         srce_wealt: row.wealthSource || "01",
         corp_servs: "",
-        inc_slab: row.annualIncome || "31",
+        inc_slab: mapAnnualIncomeToFatcaSlab(row.annualIncome),
         net_worth: "",
         nw_date: "",
         pep_flag: row.pepStatus || "N",
@@ -401,7 +416,7 @@ export const buildFatcaPayloadFromUccRegistrationRow = (
         ubo_df: "N",
         aadhaar_rp: "",
         new_change: "",
-        log_name: "",
+        log_name: fullName.substring(0, 30),
         filler1: "",
         filler2: "",
       },

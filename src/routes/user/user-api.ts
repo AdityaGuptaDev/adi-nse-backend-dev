@@ -1036,20 +1036,24 @@ router.post("/add-investor", authRateLimit, async (req: any, res: any) => {
 console.log("userType---Investor---",userType);
 console.log("mobile------",mobile);
 
-   let user = await findUserByEmailOrMobile({ mobile });
+   let user: any = await findUserByEmailOrMobile({ mobile });
 
-if (!user) {
-  return other(res, "User not found with this mobile number");
-}
+   // If user does not exist, create a new user record
+   if (!user) {
+     user = await addUser(
+       {
+         mobile,
+         userTypeId,
+         loginOTP: mobileOTP,
+         isActive: true,
+       },
+       t
+     );
+     console.log("New user created for mobile:", mobile);
+   }
 
 user = JSON.parse(JSON.stringify(user)) as Users;
 console.log("User details--", user);
-
-const payload = {
-  mobile,
-  userTypeId,
-  mobileOTP,
-};
 
  // Update user table with mobileOTP
 await updateUser1({ loginOTP: mobileOTP }, user.id, t);
@@ -1059,30 +1063,6 @@ await OtpDetail.create(
   { userId: user.id, kyc_mobile_otp: mobileOTP, mobile },
   { transaction: t }
 );
-// console.log("parentId---",parentId);
-// // Create InvestorRegistration row
-// const existingInvestor = await InvestorRegistration.findOne({
-//   where: { reg_mobile: mobile },
-// });
-
-// if (!existingInvestor) {
-//   await InvestorRegistration.create(
-//     {
-//       user_id: user.id,
-//       reg_mobile: mobile,
-//       partner_id: parentId,
-//       is_kyc_complete: false,
-//       is_CAN_registered: false,
-//       isKYCDone: false,
-//       isDelete: false,
-//       poiConsent: false,
-//     },
-//     { transaction: t }
-//   );
-//   console.log("InvestorRegistration row created for mobile:", mobile);
-// } else {
-//   console.log("InvestorRegistration already exists for mobile:", mobile);
-// }
     await t.commit();
     await SmsService.sendSmsUsingNimbus(mobile, msg);
 
@@ -1194,6 +1174,9 @@ async function handleUserFinalization(userTypeId: any, user: any, partnerId: str
       },
       t
     );
+
+    // Attach InvestorRegistration to user so frontend can access investor_id
+    user.InvestorRegistration = JSON.parse(JSON.stringify(investor));
   }
 
   if (userTypeId === USER_TYPE.partner) {

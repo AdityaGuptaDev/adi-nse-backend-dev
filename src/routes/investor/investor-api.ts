@@ -84,26 +84,24 @@ router.post("/kyc-users", dataReadRateLimit, tokenMiddleWare, async (req: any, r
 
 router.post("/partner-kyc-users", dataReadRateLimit, tokenMiddleWare, async (req: any, res: any) => {
   try {
-    const investor_id = req?.body?.partnerId;
+    const partnerId = req?.body?.partnerId;
 
-    let findUser: any = await getPartnerBasicUserDetailByUserId(investor_id);
-    findUser = JSON.parse(JSON.stringify(findUser));
-    const percentage = (Number(findUser?.last_kyc_step) / 8) * 100;
+    let findUser: any = await getPartnerBasicUserDetailByUserId(partnerId);
 
-    const updatedMembers = findUser.GroupMemmber?.map((member: any) => {
-      const memberPercentage = (Number(member?.last_kyc_step) / 8) * 100;
+    const investorsWithPercentage = findUser.investors?.map((investor: any) => {
+      const percentage = (Number(investor?.last_kyc_step) / 8) * 100;
       return {
-        ...member,
-        percentage: memberPercentage,
+        ...investor,
+        percentage,
       };
     });
+
     const finalData = {
       ...findUser,
-      percentage,
-      GroupMemmber: updatedMembers,
+      investors: investorsWithPercentage,
     };
 
-    sendEncryptedResponse(res, finalData, "Users Investor List");
+    sendEncryptedResponse(res, finalData, "Partner Investor List");
   } catch (error: any) {
     console.log(error);
     ErrorLogger.write({ type: "by-users error", error });

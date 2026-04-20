@@ -230,6 +230,9 @@ export interface UCCRegistrationAttributes {
   // UCC creation status (0 = not created, 1 = created successfully on NSE)
   uccCreated?: number | null;
 
+  // Partner ID
+  partnerId?: string | null;
+
   createdAt?: Date | null;
   updatedAt?: Date | null;
 }
@@ -447,6 +450,7 @@ export class UCCRegistration
 
   declare formStep: number | null;
   declare uccCreated: number | null;
+  declare partnerId: string | null;
 
   declare createdAt: Date | null;
   declare updatedAt: Date | null;
@@ -682,6 +686,7 @@ export class UCCRegistration
         // Form progress tracking
         formStep: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: "form_step" },
         uccCreated: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: "ucc_created" },
+        partnerId: { type: DataTypes.STRING, allowNull: true, defaultValue: "0", field: "partner_id" },
 
         createdAt: {
           type: DataTypes.DATE,

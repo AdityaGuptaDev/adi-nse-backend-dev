@@ -1460,7 +1460,8 @@ router.post("/redemption-payout", exportRateLimit, async (req, res) => {
 // and the latest log entry from ucc_registration_logs for each investor.
 router.get("/ucc/investor-list", async (req, res) => {
   try {
-    const { page = "1", limit = "20", ucc_status, search } = req.query as Record<string, string>;
+    const { page = "1", limit = "20", ucc_status, search, partner_id, investor_id, mobile } =
+      req.query as Record<string, string>;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -1483,6 +1484,42 @@ router.get("/ucc/investor-list", async (req, res) => {
         { clientCode: { [Op.iLike]: `%${search}%` } },
         { email: { [Op.iLike]: `%${search}%` } },
       ];
+    }
+
+    // Single-investor scoping: logged-in investors should only see their own
+    // UCC record(s). Accepts either a direct investor_id or a mobile lookup.
+    if (investor_id) {
+      where.investorId = investor_id;
+    }
+    if (mobile) {
+      where.indianMobileNo = mobile;
+    }
+
+    // Scope to a specific partner's investors — restricts the list to only
+    // investors mapped to the logged-in partner (passed from frontend).
+    if (partner_id) {
+      const { InvestorRegistration } = require("../../db/core/init-control-db");
+      const partnerInvestors = await InvestorRegistration.findAll({
+        where: { partner_id, isDelete: false },
+        attributes: ["id"],
+        raw: true,
+      });
+      const allowedInvestorIds = partnerInvestors.map((i: any) => i.id);
+      if (allowedInvestorIds.length === 0) {
+        return sendEncryptedResponse(
+          res,
+          {
+            status: "S",
+            remark: "Investor list fetched successfully",
+            data: {
+              investors: [],
+              pagination: { total: 0, page: pageNum, limit: limitNum, total_pages: 0 },
+            },
+          },
+          "ucc-investor-list"
+        );
+      }
+      where.investorId = { [require("sequelize").Op.in]: allowedInvestorIds };
     }
 
     const { count, rows } = await UCCRegistration.findAndCountAll({

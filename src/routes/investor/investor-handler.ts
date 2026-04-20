@@ -17,6 +17,7 @@ import {
   UserMapping,
   InvestorAccountHolding,
   BcRegistration,
+  UCCRegistration,
 } from "../../db/core/init-control-db";
 import { ROLE, USER_TYPE } from "../../utils/constant";
 const { MakeQuery } = require("../../services/model-service");
@@ -44,11 +45,114 @@ export const getBasicUserDetailByUserId = (investor_id: any) => {
   });
 };
 
-export const getPartnerBasicUserDetailByUserId = (investor_id: any) => {
-  return UserRegistration.findOne({
+export const getPartnerBasicUserDetailByUserId = async (investor_id: any) => {
+  const partner = await UserRegistration.findOne({
     where: { regId: investor_id },
     order: [["regId", "asc"]],
   });
+
+  const investors = await InvestorRegistration.findAll({
+    where: {
+      partner_id: investor_id,
+      isDelete: false,
+    },
+    include: [
+      {
+        model: AddressDetail,
+        attributes: ["id", "investor_id", "address1", "city", "state_id", "pincode"],
+      },
+    ],
+    order: [["id", "asc"]],
+  });
+
+  const partnerData = partner ? JSON.parse(JSON.stringify(partner)) : null;
+  const investorData = JSON.parse(JSON.stringify(investors));
+
+  // Enrich NSE-only investors: InvestorRegistration may be a stub (mobile only)
+  // for the UCC onboarding lane, so back-fill name/PAN/DOB/email/address from
+  // UCCRegistration keyed by mobile or PAN. CAN-onboarded investors keep their
+  // existing values (preferred source). UCC record is also returned for UI use.
+  const mobiles = investorData
+    .map((i: any) => i?.reg_mobile)
+    .filter((m: any) => m);
+  const pans = investorData
+    .map((i: any) => i?.pan_no)
+    .filter((p: any) => p);
+
+  const uccOrClauses: any[] = [];
+  if (mobiles.length) uccOrClauses.push({ indianMobileNo: { [Op.in]: mobiles } });
+  if (pans.length) uccOrClauses.push({ primaryHolderPan: { [Op.in]: pans } });
+
+  let uccRecords: any[] = [];
+  if (uccOrClauses.length) {
+    uccRecords = await UCCRegistration.findAll({
+      where: { [Op.or]: uccOrClauses },
+      raw: true,
+    });
+  }
+
+  const uccByMobile = new Map<string, any>();
+  const uccByPan = new Map<string, any>();
+  for (const u of uccRecords) {
+    if (u?.indianMobileNo) uccByMobile.set(String(u.indianMobileNo), u);
+    if (u?.primaryHolderPan) uccByPan.set(String(u.primaryHolderPan).toUpperCase(), u);
+  }
+
+  const firstNonEmpty = (...vals: any[]) => {
+    for (const v of vals) {
+      if (v !== undefined && v !== null && `${v}`.trim() !== "") return v;
+    }
+    return null;
+  };
+
+  const enrichedInvestors = investorData.map((inv: any) => {
+    const ucc =
+      (inv?.pan_no && uccByPan.get(String(inv.pan_no).toUpperCase())) ||
+      (inv?.reg_mobile && uccByMobile.get(String(inv.reg_mobile))) ||
+      null;
+
+    if (!ucc) return inv;
+
+    const uccName = [
+      ucc.primaryHolderFirstName,
+      ucc.primaryHolderMiddleName,
+      ucc.primaryHolderLastName,
+    ]
+      .filter((p: any) => p && `${p}`.trim() !== "")
+      .join(" ")
+      .trim();
+
+    const hasUcc =
+      ucc.uccCreated === 1 ||
+      ucc.uccCreated === true ||
+      !!ucc.clientCode;
+
+    return {
+      ...inv,
+      // Prefer existing InvestorRegistration values (CAN lane is authoritative
+      // when populated); only fall back to UCC when the primary source is blank.
+      name: firstNonEmpty(inv?.name, uccName),
+      pan_no: firstNonEmpty(inv?.pan_no, ucc.primaryHolderPan),
+      dob: firstNonEmpty(inv?.dob, ucc.primaryHolderDobIncorporation),
+      reg_email: firstNonEmpty(inv?.reg_email, ucc.email),
+      reg_mobile: firstNonEmpty(inv?.reg_mobile, ucc.indianMobileNo),
+      AddressDetail: inv?.AddressDetail || {
+        address1: [ucc.address1, ucc.address2, ucc.address3]
+          .filter((p: any) => p && `${p}`.trim() !== "")
+          .join(", ") || null,
+        city: ucc.city || null,
+        pincode: ucc.pincode || null,
+      },
+      ucc_client_code: ucc.clientCode || null,
+      has_ucc: hasUcc,
+      uccDetails: ucc,
+    };
+  });
+
+  return {
+    ...partnerData,
+    investors: enrichedInvestors,
+  };
 };
 
 export const getInvestorUserDetailByUserId = (user_id: any) => {
