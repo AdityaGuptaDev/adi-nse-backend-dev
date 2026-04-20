@@ -400,7 +400,26 @@ router.post("/txn-systematic", financialRateLimit, tokenMiddleWare, async (req, 
     try {
         const body = req.body;
 
+        // Diagnostic: dump the exact payload going to MFU so we can inspect
+        // the fields MFU rejected when it returns `ordCreatedFlag:"N"` with
+        // empty error strings. The MFU response reflects our payload shape —
+        // most empty-error rejections are payload-level (CAN/scheme/mandate
+        // mismatch) rather than auth.
+        console.log(
+            "[txn-systematic] >>> payload",
+            JSON.stringify({
+                investor_id: body?.investor_id,
+                isin: body?.isin,
+                transaction: body?.transaction,
+            }, null, 2)
+        );
+
         let response: any = await ApiFinTechSystematicTxnService(body?.transaction);
+
+        console.log(
+            "[txn-systematic] <<< MFU response",
+            JSON.stringify(response, null, 2)
+        );
 
         if (
             response?.respHeader?.respFlag === "S" &&
@@ -409,9 +428,7 @@ router.post("/txn-systematic", financialRateLimit, tokenMiddleWare, async (req, 
             await createTransaction(body.transaction, body?.investor_id, body?.isin);
         }
 
-        //await createTransaction(body.transaction, body?.investor_id, body?.isin);
         sendEncryptedResponse(res, response, "ApiFinTechSystematicTxnService");
-        // sendEncryptedResponse(res,  response, "Can onboarding");
     } catch (error) {
         ErrorLogger.write({ type: "fetch ApiFinTechSystematicTxnService error", error });
         serverError(res, error);

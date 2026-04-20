@@ -12,6 +12,7 @@ import {
   getAllAMCList,
   getAllFundManagerList,
   getAllSchemeList,
+  getByISIN,
   getFundManagerDataById,
   getNewFundOfferList,
   getSchemeByAMCId,
@@ -197,6 +198,60 @@ router.get(
     }
   }
 );
+
+// Top-performing schemes with SIP min-amount metadata — drives the
+// "Select Fund" picker on the SIP screen. Public (no auth) because the SIP
+// landing page lets investors browse before committing. For each category it
+// returns the top schemes along with their category 1-yr return average and
+// the Daily / Weekly / Monthly SIP minimums so the UI can filter by frequency.
+router.get("/sip-get-top-performing-schemes", async (req, res) => {
+  try {
+    let getCategory: any = await getAllSchemeCategory();
+    getCategory = JSON.parse(JSON.stringify(getCategory));
+
+    let getAllSchemeData = await Promise.all(
+      getCategory.map(async (item: any) => {
+        let allScheme: any = await getTopSchemeListByCatId(item.ID);
+        allScheme = JSON.parse(JSON.stringify(allScheme));
+
+        allScheme = await Promise.all(
+          allScheme.map(async (scheme: any) => {
+            const findCatAvg: any = await findCategoryAvg(
+              scheme?.SchemeMaster?.SchemeCategory?.ID
+            );
+
+            // SIP threshold per frequency (D/W/M) from the MFU threshold view.
+            // Empty array → scheme not registered for SIP at any tracked freq.
+            let findMinAmount: any[] = [];
+            try {
+              findMinAmount = await getByISIN(scheme?.SchemeMaster?.schemeISIN);
+            } catch {
+              findMinAmount = [];
+            }
+
+            return {
+              ...scheme,
+              categoryReturnAvg: findCatAvg?.[0]?.Return1yrAVG,
+              minAmount: findMinAmount?.length ? findMinAmount : null,
+            };
+          })
+        );
+
+        return {
+          id: item.ID,
+          categoryName: item.Name,
+          scheme: allScheme,
+        };
+      })
+    );
+
+    sendEncryptedResponse(res, getAllSchemeData, "get top SIP scheme list");
+  } catch (error) {
+    console.log(error, "sip-top-performing-schemes error");
+    ErrorLogger.write({ type: "sip-top-performing-schemes error", error });
+    serverError(res, error);
+  }
+});
 
 router.get("/get-new-fund-offer-list", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {

@@ -150,6 +150,39 @@ const PII_FIELDS = new Set([
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
+/**
+ * Recursively walk a value. For objects — strip `__pii_encrypted` sentinels,
+ * decrypt every value whose key is in PII_FIELDS, and descend into any nested
+ * object/array so deeply-nested PII (e.g. `transaction.paySec.ifsc`) also gets
+ * decrypted. For arrays — apply the same to each element.
+ *
+ * This is critical for proxied payloads (MFU, NSE, etc.) where PII lives at
+ * arbitrary depths like `transaction.paySec.ifsc`,
+ * `transaction.subSeqSec.accNo`, `transaction.logDtl.custIpAddress`. A shallow
+ * walk leaves those ciphertext strings untouched and upstream providers reject
+ * the request with generic errors like "Invalid Request Details".
+ */
+const walkAndDecrypt = (value: any): any => {
+  if (Array.isArray(value)) {
+    return value.map((item) => walkAndDecrypt(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const result: Record<string, any> = {};
+    for (const [key, child] of Object.entries(value)) {
+      if (key === '__pii_encrypted') continue; // strip sentinels at every level
+      if (PII_FIELDS.has(key) && typeof child === 'string' && child.trim() !== '') {
+        result[key] = tempDecrypt(child);
+      } else {
+        result[key] = walkAndDecrypt(child);
+      }
+    }
+    return result;
+  }
+
+  return value;
+};
+
 export const piiDecryptMiddleware = (
   req: Request,
   _res: Response,
@@ -158,36 +191,19 @@ export const piiDecryptMiddleware = (
   try {
     console.log('[piiDecrypt] === MIDDLEWARE EXECUTING ===');
     console.log('[piiDecrypt] Request body:', JSON.stringify(req.body, null, 2));
-    
-    // Only process JSON bodies that carry the PII-encrypted flag.
-    if (
-      req.body &&
-      typeof req.body === 'object' &&
-      req.body.__pii_encrypted === true
-    ) {
-      console.log('[piiDecrypt] PII encryption detected, decrypting...');
-      
-      // Use temporary direct decryption for immediate fix
-      const result: Record<string, any> = {};
-      
-      for (const [key, value] of Object.entries(req.body)) {
-        if (key === '__pii_encrypted') {
-          // Strip the sentinel – do not pass it to controllers
-          console.log('[piiDecrypt] Removing __pii_encrypted flag');
-          continue;
-        }
 
-        if (PII_FIELDS.has(key) && typeof value === 'string' && value.trim() !== '') {
-          console.log(`[piiDecrypt] Processing PII field: ${key} = ${value}`);
-          const decrypted = tempDecrypt(value);
-          console.log(`[piiDecrypt] Decrypted ${key}: ${decrypted}`);
-          result[key] = decrypted;
-        } else {
-          result[key] = value;
-        }
-      }
-      
-      req.body = result;
+    // Only process JSON bodies that carry the PII-encrypted flag — either at
+    // the top level OR anywhere nested (our recursive walker handles both).
+    const hasFlag = (obj: any): boolean => {
+      if (!obj || typeof obj !== 'object') return false;
+      if (obj.__pii_encrypted === true) return true;
+      if (Array.isArray(obj)) return obj.some(hasFlag);
+      return Object.values(obj).some(hasFlag);
+    };
+
+    if (req.body && typeof req.body === 'object' && hasFlag(req.body)) {
+      console.log('[piiDecrypt] PII encryption detected, decrypting recursively...');
+      req.body = walkAndDecrypt(req.body);
       console.log('[piiDecrypt] Final decrypted body:', JSON.stringify(req.body, null, 2));
       console.log('[piiDecrypt] === MIDDLEWARE COMPLETED ===');
     } else {
@@ -197,7 +213,6 @@ export const piiDecryptMiddleware = (
     // Never block a request due to decryption failure – log and continue.
     console.error('[piiDecrypt] Unexpected error during PII decryption:', err);
     console.error('[piiDecrypt] Error details:', err?.message || err);
-    // If decryption fails, continue with original body
   }
 
   next();

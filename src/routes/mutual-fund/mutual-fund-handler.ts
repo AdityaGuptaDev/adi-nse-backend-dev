@@ -624,3 +624,40 @@ export const findByISINNo = async (pri_isin: string): Promise<any[]> => {
     throw new Error(`Failed to search by ISIN: ${(error as Error).message}`);
   }
 };
+
+// SIP min-amount lookup — ported from mf-backend-nitish. Used by
+// /sip-get-top-performing-schemes to surface the minimum Daily / Weekly /
+// Monthly SIP amount for each scheme so the SIP picker can filter funds the
+// investor's selected amount actually qualifies for.
+type SchemeMinAmount = {
+  sys_freq: 'D' | 'M' | 'W';
+  sys_date: string;
+  sys_freq_opt: string;
+  min_amt: number;
+};
+
+export const getByISIN = async (pri_isin: string): Promise<SchemeMinAmount[]> => {
+  if (!pri_isin || pri_isin.trim() === "") {
+    throw new Error("ISIN is required");
+  }
+
+  const query = `
+    SELECT sys_freq, sys_date, sys_freq_opt, min_amt
+    FROM vw_mfu_scheme_master_threshold
+    WHERE pri_isin = :pri_isin
+      AND txn_type = 'V'
+      AND sys_freq IN ('D', 'M', 'W')
+      AND min_amt::NUMERIC between 99 and 1000;
+  `;
+
+  try {
+    const results = await db.query(query, {
+      replacements: { pri_isin: pri_isin.trim().toUpperCase() },
+      type: QueryTypes.SELECT,
+    });
+    return results as SchemeMinAmount[];
+  } catch (error) {
+    console.error(`Error searching SIP min-amount for ISIN ${pri_isin}:`, error);
+    throw new Error(`Failed to search by ISIN: ${(error as Error).message}`);
+  }
+};
