@@ -63,8 +63,11 @@ router.get("/get-top-performing-schemes", dataReadRateLimit, tokenMiddleWare, as
 
     let getAllSchemeData = await Promise.all(
       getCategory.map(async (item: any) => {
-        let allScheme: any = await getTopSchemeListByCatId(item.ID);
-        allScheme = JSON.parse(JSON.stringify(allScheme));
+        // `getTopSchemeListByCatId` now returns `{ rows, count, page, limit }`
+        // (extended to support the SIP page's pagination). This dashboard
+        // endpoint only needs the rows, so unwrap before serialising.
+        const paged: any = await getTopSchemeListByCatId(item.ID);
+        let allScheme: any = JSON.parse(JSON.stringify(paged.rows));
 
         allScheme = await Promise.all(
           allScheme.map(async (item: any) => {
@@ -206,13 +209,39 @@ router.get(
 // the Daily / Weekly / Monthly SIP minimums so the UI can filter by frequency.
 router.get("/sip-get-top-performing-schemes", async (req, res) => {
   try {
+    // Optional sub-category filter driven by the SIP page's Advanced
+    // Filter drawer. Accepts a comma-separated list of SchemeSubcategory
+    // IDs in `subCategory` — e.g. "?subCategory=12,37". When provided,
+    // each category's top-5 list is narrowed to schemes whose
+    // subcategory_id is in that set so the investor actually sees the
+    // sub-category they picked (Large-Cap, Flexi Cap, …) instead of the
+    // global top-5 across the broad category.
+    const subCatRaw = (req.query?.subCategory as string | undefined) || "";
+    const subCategoryIds: number[] = subCatRaw
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => Number(s))
+      .filter(n => !Number.isNaN(n));
+
+    // Pagination — each category is paged independently so the SIP page can
+    // render "Page 1 / 2 / 3 …" under the selected category tab. Defaults
+    // preserve the original behaviour (page 1, 5 per category).
+    const page = Math.max(1, Number(req.query?.page) || 1);
+    const limit = Math.max(1, Math.min(50, Number(req.query?.limit) || 5));
+
     let getCategory: any = await getAllSchemeCategory();
     getCategory = JSON.parse(JSON.stringify(getCategory));
 
     let getAllSchemeData = await Promise.all(
       getCategory.map(async (item: any) => {
-        let allScheme: any = await getTopSchemeListByCatId(item.ID);
-        allScheme = JSON.parse(JSON.stringify(allScheme));
+        const paged: any = await getTopSchemeListByCatId(
+          item.ID,
+          subCategoryIds.length > 0 ? subCategoryIds : undefined,
+          page,
+          limit
+        );
+        let allScheme: any = JSON.parse(JSON.stringify(paged.rows));
 
         allScheme = await Promise.all(
           allScheme.map(async (scheme: any) => {
@@ -241,6 +270,10 @@ router.get("/sip-get-top-performing-schemes", async (req, res) => {
           id: item.ID,
           categoryName: item.Name,
           scheme: allScheme,
+          // Per-category pagination metadata so the UI can render Page X of Y.
+          totalCount: paged.count,
+          page: paged.page,
+          limit: paged.limit,
         };
       })
     );

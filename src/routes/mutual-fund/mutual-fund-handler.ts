@@ -46,23 +46,46 @@ export const getTopPerformingSchemeList = () => {
   });
 };
 
-export const getTopSchemeListByCatId = (catId: any) => {
-  return SchemePerformance.findAll({
+export const getTopSchemeListByCatId = async (
+  catId: any,
+  subCategoryIds?: number[],
+  page: number = 1,
+  limit: number = 5
+) => {
+  const schemeMasterWhere: any = {
+    categoryid: catId,
+    scheme_type: "R",
+    option_id: 1,
+  };
+  // Optional sub-category narrowing — driven by the SIP page's Advanced
+  // Filter drawer. When the investor picks one or more sub-categories we
+  // return the top `limit` performers whose SchemeMaster.subcategory_id is
+  // in that list, instead of the global top-N for the broad category.
+  if (Array.isArray(subCategoryIds) && subCategoryIds.length > 0) {
+    schemeMasterWhere.subcategory_id = { [Op.in]: subCategoryIds };
+  }
+
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 5));
+  const offset = (safePage - 1) * safeLimit;
+
+  // `findAndCountAll` so the SIP page can render a "Page 1 / 2 / 3 …"
+  // pagination control. `distinct: true` keeps the count accurate in
+  // presence of the SchemeMaster include join.
+  const result = await SchemePerformance.findAndCountAll({
     where: {
       Return1yr: {
         [Op.not]: null,
       },
     },
     order: [["Return1yr", "DESC"]],
-    limit: 5,
+    limit: safeLimit,
+    offset,
+    distinct: true,
     include: [
       {
         model: SchemeMaster,
-        where: {
-          categoryid: catId,
-          scheme_type: "R",
-          option_id: 1,
-        },
+        where: schemeMasterWhere,
         attributes: ["id", "ms_fullname", "name", "riskLevel", "schemeISIN"],
         include: [
           {
@@ -77,6 +100,13 @@ export const getTopSchemeListByCatId = (catId: any) => {
       },
     ],
   });
+
+  return {
+    rows: result.rows,
+    count: result.count,
+    page: safePage,
+    limit: safeLimit,
+  };
 };
 
 export const findCategoryAvg = (id: any) => {
