@@ -96,13 +96,22 @@ import e from "express";
 import { getUserByFindEmailOrMobile } from "../user/user-handler";
 import { partnerMobileToAccount } from "../decentro/decentro-handler";
 import { tokenMiddleWare } from "../../middlewares/tokenMiddleware";
-import { kycRateLimit, dataReadRateLimit } from "../../middlewares/rateLimit";
+import {
+  kycRateLimit,
+  dataReadRateLimit,
+  dataWriteRateLimit,
+  uploadRateLimit,
+  mobileOtpSendLimit,
+  emailOtpSendLimit,
+  aadhaarOtpSendLimit,
+} from "../../middlewares/rateLimit";
 
 let { generateToken } = prosesjwt;
 
 const router = express.Router();
 
-router.post("/registration-status", kycRateLimit, tokenMiddleWare, async (req, res) => {
+// Registration status is a read of our own DB, not an external KYC call.
+router.post("/registration-status", dataReadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -140,7 +149,7 @@ router.post("/registration-status", kycRateLimit, tokenMiddleWare, async (req, r
 });
 
 //mobile-verification -
-router.post("/mobile-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
+router.post("/mobile-verification", mobileOtpSendLimit, kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -280,7 +289,7 @@ router.post("/mobile-otp-verification", kycRateLimit, tokenMiddleWare, async (re
 });
 
 //Adhaar Verification send otp
-router.post("/aadhaar-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
+router.post("/aadhaar-verification", aadhaarOtpSendLimit, kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
    //added the user type for handleing the partner and bc adhaar verification function 
     const { mobile, aadhaar,userTypeId } = req.body;
@@ -488,7 +497,7 @@ if(userTypeId===6){
 
 //nismUpload
 
-router.post("/nism-upload", kycRateLimit, tokenMiddleWare, async (req, res) => {
+router.post("/nism-upload", uploadRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const { mobile, nismDoc, arn_no, euin_no } = req.body;
 
@@ -522,7 +531,7 @@ router.post("/nism-upload", kycRateLimit, tokenMiddleWare, async (req, res) => {
     serverError(res, error);
   }
 });
-router.post("/email-verification", kycRateLimit, tokenMiddleWare, async (req, res) => {
+router.post("/email-verification", emailOtpSendLimit, kycRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;
@@ -649,7 +658,11 @@ if(userTypeId===6){
   }
 });
 
-router.post("/update-nominee", kycRateLimit, tokenMiddleWare, async (req, res) => {
+// Nominee save is a DB write, not an external KYC verification — it was
+// sharing the strict 20-req KYC bucket with PAN/Aadhaar/OTP calls and tripping
+// "Too many verification requests" mid-onboarding. Move it to the write tier
+// (100/15min).
+router.post("/update-nominee", dataWriteRateLimit, tokenMiddleWare, async (req, res) => {
   try {
     const body = req.body;
     const header = req.headers;

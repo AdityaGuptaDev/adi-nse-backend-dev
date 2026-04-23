@@ -14,6 +14,12 @@ import { initProsesConfig } from "./config/init-proses";
 // import loadService from "./services/load-service";
 // import errorHandler from "./middlewares/errorHandler.middleware"
 const app: Application = express();
+// Honor X-Forwarded-For from the reverse proxy (nginx/Cloudflare/cloud LB) so
+// req.ip resolves to the real client IP instead of the proxy's IP. Without
+// this, the rate limiter keys every production user under the single proxy IP
+// and the shared bucket trips "Too many verification requests" on the live
+// server even though it works locally.
+app.set('trust proxy', 1);
 const fs = require("fs");
 import configs from "./config/config";
 import environment from "./environment";

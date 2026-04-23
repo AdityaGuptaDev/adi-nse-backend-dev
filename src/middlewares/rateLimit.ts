@@ -100,8 +100,11 @@ export const authRateLimit = authFailureLimiter.middleware;
 export const RateLimitTiers = {
     // Financial transactions: strict - prevent abuse of money movement
     FINANCIAL: { windowMs: 15 * 60 * 1000, maxRequests: 30, message: 'Too many transaction requests, please try again later' },
-    // KYC & verification: moderate - external API cost + abuse prevention
-    KYC: { windowMs: 15 * 60 * 1000, maxRequests: 20, message: 'Too many verification requests, please try again later' },
+    // KYC & verification: moderate - external API cost + abuse prevention.
+    // A single full onboarding does ~15 verification calls (mobile OTP
+    // send+verify, PAN, Aadhaar send+verify, bank, email send+verify, nominee
+    // updates); 20 left no headroom for a retry. 60 still blocks abuse.
+    KYC: { windowMs: 15 * 60 * 1000, maxRequests: 60, message: 'Too many verification requests, please try again later' },
     // File upload: strict - resource heavy
     UPLOAD: { windowMs: 15 * 60 * 1000, maxRequests: 15, message: 'Too many upload requests, please try again later' },
     // Data write (CRUD): standard write protection
@@ -131,8 +134,12 @@ class RateLimiter {
 
     middleware = (req: Request, res: Response, next: NextFunction): void => {
         const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+        // Prefer the auth token when present so two authenticated users behind
+        // the same NAT/proxy each get their own budget; fall back to IP for
+        // anonymous requests.
+        const authToken = req.headers.authorization?.split(' ')[1];
         const now = Date.now();
-        const key = `${ip}`;
+        const key = authToken ? `token:${authToken}` : `ip:${ip}`;
 
         let entry = this.cache.get(key);
 
@@ -195,3 +202,71 @@ export const exportRateLimit = createRateLimiter(RateLimitTiers.EXPORT);
 
 // Global rate limiter (backward compatible)
 export const rateLimitMiddleware = createRateLimiter(RateLimitTiers.GLOBAL);
+
+// ─── Recipient-keyed limiter (OTP-send protection) ─────────────────────────
+// OTP-send endpoints need an ADDITIONAL layer keyed by the OTP recipient
+// (mobile/email/aadhaar). Without this, a single authenticated session can
+// hammer an arbitrary mobile number with OTP SMS — turning our backend into an
+// SMS bomb relay. This is a separate bucket from the token/IP-based limiter.
+type KeyExtractor = (req: Request) => string | null | undefined;
+
+export function createRecipientRateLimiter(config: RateLimitConfig, keyExtractor: KeyExtractor) {
+    const cache = new Map<string, RateLimitEntry>();
+    setInterval(() => {
+        const now = Date.now();
+        for (const [k, v] of cache.entries()) {
+            if (now > v.resetTime) cache.delete(k);
+        }
+    }, 5 * 60 * 1000);
+
+    return (req: Request, res: Response, next: NextFunction): void => {
+        const recipient = keyExtractor(req);
+        // If we can't extract a recipient, let the request through — the main
+        // KYC rate limiter (applied alongside this one) still provides coverage.
+        if (!recipient) return next();
+
+        const now = Date.now();
+        const key = `recipient:${recipient}`;
+        let entry = cache.get(key);
+
+        if (!entry || now > entry.resetTime) {
+            cache.set(key, { ip: recipient, count: 1, resetTime: now + config.windowMs });
+            return next();
+        }
+
+        entry.count++;
+        if (entry.count > config.maxRequests) {
+            res.status(429).json({
+                success: false,
+                message: config.message || 'Too many OTP requests for this recipient, please try again later',
+                error: 'RATE_LIMIT_EXCEEDED',
+                retryAfter: Math.ceil((entry.resetTime - now) / 1000),
+            });
+            return;
+        }
+
+        next();
+    };
+}
+
+// 5 OTP sends per 15 min per mobile number. Prevents a single session (or a
+// leaked token) from spamming a target phone with SMS OTPs.
+export const mobileOtpSendLimit = createRecipientRateLimiter(
+    { windowMs: 15 * 60 * 1000, maxRequests: 5,
+      message: 'Too many OTP requests for this mobile number, please try again later' },
+    (req) => (req.body?.mobile || req.body?.mobile_no || req.body?.phone || '').toString().trim() || null,
+);
+
+// 5 email OTP sends per 15 min per email address.
+export const emailOtpSendLimit = createRecipientRateLimiter(
+    { windowMs: 15 * 60 * 1000, maxRequests: 5,
+      message: 'Too many OTP requests for this email address, please try again later' },
+    (req) => (req.body?.email || '').toString().trim().toLowerCase() || null,
+);
+
+// 5 Aadhaar OTP sends per 15 min per Aadhaar number.
+export const aadhaarOtpSendLimit = createRecipientRateLimiter(
+    { windowMs: 15 * 60 * 1000, maxRequests: 5,
+      message: 'Too many OTP requests for this Aadhaar, please try again later' },
+    (req) => (req.body?.aadhaar || req.body?.adhaar || '').toString().trim() || null,
+);

@@ -1,17 +1,67 @@
 export const preparePayload = (parsedInvestor: any) => {
-    const holders = parsedInvestor.basicDetails || [];
-    const holderCount = holders.length || 1;
+    const rawHolders = parsedInvestor.basicDetails || [];
     const banks = parsedInvestor.BankAccountDetails || [];
     const nominees = parsedInvestor.NomineeDetails || [];
+
+    // MFU requires HOLDING_TYPE and the number of HOLDER_RECORDS to agree, or
+    // it rejects with "Holder Count should be equal to holder details"
+    // (RES_CODE 10287). SI = Single (exactly 1), JO = Joint / AS = Anyone or
+    // Survivor (2–3). We had a stray secondary-holder row in the DB from an
+    // earlier attempt that was being shipped even when HOLDING_TYPE was SI —
+    // slice the holders list to what the declared holding type allows so the
+    // request is always internally consistent.
+    const holdingType = parsedInvestor.holding_nature || "SI";
+    const maxHoldersForType = holdingType === "SI" ? 1 : 3;
+
+    // Deduplicate by date_of_birth, keeping the NEWEST row (highest id) per
+    // holder. Legacy data created before the updateHolderDetails fix may
+    // contain multiple rows per holder (each PAN edit inserted a new row
+    // instead of updating in place). Taking the newest row ensures the most
+    // recently saved PAN/name/etc is what reaches MFU — otherwise `slice(0,1)`
+    // picks the oldest row with the bad original PAN and the "Edit PAN and
+    // Retry" flow keeps failing.
+    const byNewestPerDob = new Map<string, any>();
+    for (const h of rawHolders) {
+        const key = String(h?.date_of_birth ?? h?.id);
+        const existing = byNewestPerDob.get(key);
+        if (!existing || (h?.id ?? 0) > (existing?.id ?? 0)) {
+            byNewestPerDob.set(key, h);
+        }
+    }
+    const dedupedHolders = Array.from(byNewestPerDob.values()).sort(
+        (a, b) => (a?.id ?? 0) - (b?.id ?? 0),
+    );
+    const holders = dedupedHolders.slice(0, maxHoldersForType);
+    const holderCount = holders.length || 1;
 
     const getHolderType = (index: number) =>
         ["PR", "SE", "TH", "GD"][index] || "PR";
 
+    // Pair KYC and FATCA rows to their holder by PAN (primary) or DOB (fallback)
+    // instead of by array index. Index-matching was unreliable once the DB
+    // contained legacy duplicates — we'd pair holder[0] with a stale kyc row
+    // belonging to a since-deleted registration attempt.
+    const findMatch = (arr: any[], basic: any) => {
+        if (!Array.isArray(arr) || arr.length === 0) return {};
+        const byPan = arr.find(
+            (x: any) => x?.pan_pek && basic?.pan_pek && x.pan_pek === basic.pan_pek,
+        );
+        if (byPan) return byPan;
+        const byDob = arr.find(
+            (x: any) =>
+                x?.date_of_birth &&
+                basic?.date_of_birth &&
+                String(x.date_of_birth) === String(basic.date_of_birth),
+        );
+        if (byDob) return byDob;
+        return arr[0] || {};
+    };
+
     /* -------------------- HOLDER RECORDS -------------------- */
     const createHolderRecords = () => {
         return holders.map((basic: any, index: number) => {
-            const kyc = parsedInvestor.additionalKyc?.[index] || {};
-            const fatca = parsedInvestor.fatcaDetails?.[index] || {};
+            const kyc = findMatch(parsedInvestor.additionalKyc, basic);
+            const fatca = findMatch(parsedInvestor.fatcaDetails, basic);
 
             return {
                 HOLDER_TYPE: getHolderType(index),
@@ -143,7 +193,7 @@ export const preparePayload = (parsedInvestor: any) => {
                 EMAIL_ID: parsedInvestor.reg_email
             }],
 
-            HOLDING_TYPE: parsedInvestor.holding_nature || "SI",
+            HOLDING_TYPE: holdingType,
             INV_CATEGORY: parsedInvestor.investor_category || "I",
             TAX_STATUS: "RI",
 

@@ -129,7 +129,7 @@ export = {
     },
     adminEmail: process.env.SECURITY_EMAIL || "ujjwalsingh.vedant@gmail.com",
     securitySms: process.env.SECURITY_SMS || "9304955503",
-    ApiUrl: "http://localhost:9065",
+    ApiUrl: "http://localhost:9075",
     // ApiUrl: "https://vedantmf.com/api/",
     adminURL: "http://localhost:4200",
     reactUrl: "https://vedantmf.com",

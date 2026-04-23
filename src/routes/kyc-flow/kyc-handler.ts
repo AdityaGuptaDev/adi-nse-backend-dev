@@ -773,104 +773,89 @@ export const updateHolderDetails = async (
 
     data: any
 ) => {
+    // Which holder is being saved? 'sole-secondary' means holder index 1,
+    // anything else (sole-primary, etc.) means holder index 0. We use the
+    // step signal as the source of truth instead of matching on DOB, because
+    // DOB-based matching broke in two ways:
+    //   1) A PAN edit used to change the lookup key and duplicate the primary row.
+    //   2) A blank/mistyped DOB on the secondary step silently overwrote the
+    //      primary row — which is exactly why the Summary only ever showed one
+    //      holder after a Joint save.
+    // With the step-based routing below, each step always touches its own row.
+    const holderIndex = last_kyc_step === "sole-secondary" ? 1 : 0;
 
+    const basicDetailsPayload = data?.investorBasicDetails || {};
+    const { pan_pek, date_of_birth, name } = basicDetailsPayload;
 
-    try {
+    await updateInvestorRegistration(
+        { last_kyc_step, next_kyc_step, reg_email },
+        investor_id
+    );
 
-        const basicDetailsPayload = data?.investorBasicDetails || {};
-        const { pan_pek, date_of_birth, name } = basicDetailsPayload;
+    let email = reg_email;
 
-
-        await updateInvestorRegistration(
-            { last_kyc_step, next_kyc_step, reg_email },
-            investor_id
-        );
-
-        let email = reg_email;
-
+    if (user_id) {
         const userData = await Users.findOne({
-            where:
-            {
-                id: user_id,
-            }
+            where: { id: user_id },
         });
-
-        if (userData) {
-            if (userData.email == null || '') {
-                await updateUser(
-                    { email, name },
-                    user_id
-                );
-            }
-
+        if (userData && (userData.email == null || userData.email === "")) {
+            await updateUser({ email, name }, user_id);
         }
-
-
-        const existingBasic = await InvestorBasicDetails.findOne({
-            where:
-            {
-                investor_id: investor_id,
-                pan_pek: pan_pek,
-                date_of_birth: date_of_birth
-            }
-        });
-        if (existingBasic) {
-            console.log("existingBasic", existingBasic)
-
-
-            await existingBasic.update(basicDetailsPayload);
-        } else {
-            await InvestorBasicDetails.create({ investor_id, ...basicDetailsPayload });
-        }
-
-
-        const additionalKycPayload = {
-            ...data?.additionalKyc,
-            pan_pek,
-            date_of_birth
-        };
-
-        const existingKyc = await InvestorAdditionalKyc.findOne({
-            where: {
-                investor_id,
-                pan_pek: pan_pek,
-                date_of_birth: date_of_birth
-            }
-        });
-        if (existingKyc) {
-            await existingKyc.update(additionalKycPayload);
-        } else {
-            await InvestorAdditionalKyc.create({ investor_id, ...additionalKycPayload },
-                { logging: console.log });
-        }
-
-        //const fatcaPayload = data?.fatca || {};
-        const fatcaPayload = {
-
-            ...data?.fatca,
-            pan_pek,
-            date_of_birth
-        };
-        const existingFatca = await InvestorFatcaDetails.findOne({
-            where: {
-                investor_id,
-                pan_pek: pan_pek,
-                date_of_birth: date_of_birth
-            }
-        });
-        if (existingFatca) {
-            await existingFatca.update(fatcaPayload);
-        } else {
-            await InvestorFatcaDetails.create({ investor_id, ...fatcaPayload });
-        }
-
-        return {
-            message: "Investor details updated successfully",
-            investor_id,
-        };
-    } catch (error) {
-        console.log("Errrrrr", error)
     }
+
+    // Resolve the specific row for this holder index. `order: [[id, ASC]]`
+    // gives us a stable ordering — primary was inserted first, secondary
+    // later. If the row at the requested index doesn't exist yet, we create
+    // one; otherwise we update it in place. This also cleans up any extra
+    // rows beyond the declared count at save time.
+    const pickHolderRow = async <T extends { update: Function }>(
+        model: any,
+    ): Promise<T | null> => {
+        const rows = await model.findAll({
+            where: { investor_id },
+            order: [["id", "ASC"]],
+        });
+        return rows[holderIndex] ?? null;
+    };
+
+    const existingBasic = await pickHolderRow<any>(InvestorBasicDetails);
+    if (existingBasic) {
+        await existingBasic.update(basicDetailsPayload);
+    } else {
+        await InvestorBasicDetails.create({ investor_id, ...basicDetailsPayload });
+    }
+
+    const additionalKycPayload = {
+        ...data?.additionalKyc,
+        pan_pek,
+        date_of_birth,
+    };
+
+    const existingKyc = await pickHolderRow<any>(InvestorAdditionalKyc);
+    if (existingKyc) {
+        await existingKyc.update(additionalKycPayload);
+    } else {
+        await InvestorAdditionalKyc.create({ investor_id, ...additionalKycPayload });
+    }
+
+    const fatcaPayload = {
+        ...data?.fatca,
+        pan_pek,
+        date_of_birth,
+    };
+
+    const existingFatca = await pickHolderRow<any>(InvestorFatcaDetails);
+    if (existingFatca) {
+        await existingFatca.update(fatcaPayload);
+    } else {
+        await InvestorFatcaDetails.create({ investor_id, ...fatcaPayload });
+    }
+
+    return {
+        message: "Investor details updated successfully",
+        investor_id,
+        holder_index: holderIndex,
+    };
 };
 
 export const getHolderDetails = async (investor_id: number) => {
@@ -879,23 +864,28 @@ export const getHolderDetails = async (investor_id: number) => {
             throw new Error("Investor ID is required");
         }
 
-        // Basic Details
+        // Order by id ASC so primary (inserted first) is always at index 0
+        // and secondary at index 1. The frontend's SolePrimaryHolder and
+        // SoleSecondaryHolder steps both index into these arrays by holder
+        // position, so the ordering must be stable and consistent with the
+        // write-side holder-index picking in updateHolderDetails.
+        const orderAsc: any = [["id", "ASC"]];
+
         const basicDetails = await InvestorBasicDetails.findAll({
             where: { investor_id },
+            order: orderAsc,
             raw: true,
         });
 
-        console.log("Basic Details:", basicDetails);
-
-        // Additional KYC
         const additionalKyc = await InvestorAdditionalKyc.findAll({
             where: { investor_id },
+            order: orderAsc,
             raw: true,
         });
 
-        // FATCA Details
         const fatca = await InvestorFatcaDetails.findAll({
             where: { investor_id },
+            order: orderAsc,
             raw: true,
         });
 

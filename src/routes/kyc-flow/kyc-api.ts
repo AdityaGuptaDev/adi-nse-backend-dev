@@ -3971,6 +3971,29 @@ router.post("/CAN-creation", kycRateLimit, async (req: any, res: any) => {
       investor = data[1][0];
       console.log("Updation of investor after can registration", investor);
 
+    } else if (result?.RESP_HEADER?.RES_CODE === "16094") {
+      // "CAN already exists for the same combination" — MFU's idempotency
+      // check. A previous submit (possibly during a retry) already registered
+      // this investor at MFU, but our DB never captured the CAN number
+      // (response processing failed or the browser navigated away before the
+      // success path finished). From the investor's perspective KYC IS
+      // complete at MFU's side, so we mark them as CAN-registered here and
+      // let the frontend present this as a soft "you're already registered"
+      // outcome rather than a hard failure. The actual CAN number can be
+      // retrieved later via an MFU CAN-search call by support.
+      console.log(
+        "CAN already exists at MFU (RES_CODE 16094) — marking investor as CAN-registered without CAN number."
+      );
+
+      const data = await updateInvestorRegistration(
+        { is_kyc_complete: true, is_CAN_registered: true },
+        req.body.investor_id
+      );
+      investor = data?.[1]?.[0] ?? null;
+
+      // Annotate the result so the frontend can distinguish this from a
+      // generic failure and show a calmer message.
+      (result.RESP_HEADER as any).ALREADY_REGISTERED = true;
     }
     /*const response = {
       "CANIndFillEezzResp": {
