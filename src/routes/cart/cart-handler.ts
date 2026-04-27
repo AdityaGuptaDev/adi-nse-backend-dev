@@ -3,13 +3,18 @@ import { AMCMaster, InvestorCart, SchemeMaster, SchemePerformance } from "../../
 
 
 export const findInvestorCartData = (body: any) => {
-    return InvestorCart.findOne({
-        where: {
-            investor_id: body.investor_id,
-            scheme_id: body.scheme_id,
-            user_id: body.user_id
-        }
-    })
+    // Scope the duplicate check to (investor, user, scheme, trans_type) so the
+    // same fund can live in the cart as both a Lumpsum and a SIP — they are
+    // distinct transactions and should each be addable independently.
+    const where: any = {
+        investor_id: body.investor_id,
+        scheme_id: body.scheme_id,
+        user_id: body.user_id,
+    };
+    if (body.trans_type !== undefined && body.trans_type !== null) {
+        where.trans_type = body.trans_type;
+    }
+    return InvestorCart.findOne({ where });
 }
 
 export const addInvestorCartData = (body: any) => {

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getHardcodedUccPayload, nseUccRegistration, nseTransactionApi, nseRedemptionApi, nseSwitchApi, nseXsipRegistrationApi, nseSipRegistrationApi, nseStpRegistrationApi, nseSwpRegistrationApi, nseOrderCancellationApi, nseStpCancellationApi, nseClientBankDetailsApi, nseMandatePurchaseApi, nseMandateRedemptionApi, nseProvisionalReportApi, nseOrderStatusApi, nseBankElogUploadApi, nseMemberFundAllocationApi, nseTwoFaReportApi } from "../../services/nse.service";
+import { getHardcodedUccPayload, nseUccRegistration, nseTransactionApi, nseRedemptionApi, nseSwitchApi, nseXsipRegistrationApi, nseSipRegistrationApi, nseStpRegistrationApi, nseSwpRegistrationApi, nseOrderCancellationApi, nseStpCancellationApi, nseClientBankDetailsApi, nseMandatePurchaseApi, nseMandateRedemptionApi, nseProvisionalReportApi, nseOrderStatusApi, nseBankElogUploadApi, nseMemberFundAllocationApi, nseTwoFaReportApi, nseTransactionDetailReportApi } from "../../services/nse.service";
 import { UserRegistration } from "../partner/partner-model";
 import { InvestorRegistration } from "../kyc-flow/user_basic_detail-model";
 import sequelize from "sequelize/types/sequelize";
@@ -14,6 +14,30 @@ import { Op } from "sequelize";
 
 
 // registration ucc 1
+
+// ── Helper: Undo "/" → "#x2F" sanitization so NSE gets real slashes ──
+// The inbound sanitization middleware HTML-escapes every "/" to "&#x2F;"
+// for XSS defense, and the "&" and ";" are stripped downstream leaving
+// "#x2F" literally in the payload. NSE needs real DD/MM/YYYY dates and
+// real forward slashes in every string field, so we walk the payload
+// recursively and replace them all before forwarding to NSE.
+export const nseUnescapeSlashes = <T>(obj: T): T => {
+  if (obj == null) return obj;
+  if (typeof obj === "string") {
+    return obj.replace(/#x2F/gi, "/") as unknown as T;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(nseUnescapeSlashes) as unknown as T;
+  }
+  if (typeof obj === "object") {
+    const out: any = {};
+    for (const k of Object.keys(obj as any)) {
+      out[k] = nseUnescapeSlashes((obj as any)[k]);
+    }
+    return out;
+  }
+  return obj;
+};
 
 // ── Helper: Format any date string to NSE-required DD-MM-YYYY ──
 // Accepts: YYYY-MM-DD, YYYY/MM/DD, DD-MM-YYYY, DD/MM/YYYY, ISO timestamps.
@@ -129,20 +153,47 @@ export const buildUccPayloadFromUccRegistration = async (
   //   • If nominee_X_name is entered → identity_type is MANDATORY
   //   • If identity_type is entered → identity_number is MANDATORY
   //
-  // Pre-flight validation: if nominee is opted in but identity is missing,
-  // throw a clear error BEFORE hitting NSE so the user gets actionable feedback.
+  // Special case: minor nominees don't have their own ID. The form hides
+  // the ID Proof / ID Number fields for minors and collects Guardian PAN
+  // instead. We satisfy NSE by auto-filling identity_type=1 (PAN) and
+  // identity_number=guardian's PAN — which is the legally responsible
+  // identity on the account anyway.
+  //
+  // Pre-flight validation: if nominee is opted in but identity is missing
+  // and we can't derive it from guardian, throw a clear error BEFORE
+  // hitting NSE so the user gets actionable feedback.
   const validateAndNormalizeNomineeIdentity = (
     nomineeIndex: number,
     nomineeName: any,
     type: any,
-    number: any
+    number: any,
+    isMinor: any,
+    guardianPan: any,
   ): { type: string; number: string } => {
     const name = nomineeName ? String(nomineeName).trim() : "";
     const t = type ? String(type).trim() : "";
     const n = number ? String(number).trim() : "";
+    const minor =
+      isMinor === true ||
+      isMinor === "Y" ||
+      isMinor === "y" ||
+      isMinor === 1 ||
+      isMinor === "1";
+    const gpan = guardianPan ? String(guardianPan).trim().toUpperCase() : "";
 
     // No nominee at this slot → nothing to validate
     if (!name) return { type: "", number: "" };
+
+    // Minor nominee → use Guardian PAN as the identity (type 1 = PAN).
+    if (minor) {
+      if (!gpan) {
+        throw new Error(
+          `Nominee ${nomineeIndex} is marked as a minor but Guardian PAN is missing. ` +
+            `Please enter the Guardian PAN on the form so it can be sent as the nominee's identity to NSE.`,
+        );
+      }
+      return { type: "1", number: gpan };
+    }
 
     // Nominee exists but identity_type missing → fatal
     if (!t) {
@@ -167,21 +218,52 @@ export const buildUccPayloadFromUccRegistration = async (
     1,
     r.nominee1Name,
     r.nominee1IdentityType,
-    r.nominee1IdentityNumber
+    r.nominee1IdentityNumber,
+    r.nominee1MinorFlag,
+    r.nominee1GuardianPan,
   );
-  // nom2Id / nom3Id reserved for when nominee 2 & 3 are added to the payload
-  void validateAndNormalizeNomineeIdentity(
+  const nom2Id = validateAndNormalizeNomineeIdentity(
     2,
     r.nominee2Name,
     r.nominee2IdentityType,
-    r.nominee2IdentityNumber
+    r.nominee2IdentityNumber,
+    r.nominee2MinorFlag,
+    r.nominee2GuardianPan,
   );
-  void validateAndNormalizeNomineeIdentity(
+  const nom3Id = validateAndNormalizeNomineeIdentity(
     3,
     r.nominee3Name,
     r.nominee3IdentityType,
-    r.nominee3IdentityNumber
+    r.nominee3IdentityNumber,
+    r.nominee3MinorFlag,
+    r.nominee3GuardianPan,
   );
+
+  // Only ship a nominee slot when that nominee actually has a name. A slot
+  // with no name is one the user didn't fill — sending empty strings would
+  // still be counted by NSE's nominee validator and break "NOMINEE TOTAL
+  // PERCENTAGE MUST BE 100".
+  const hasNominee2 = !!(r.nominee2Name && String(r.nominee2Name).trim());
+  const hasNominee3 = !!(r.nominee3Name && String(r.nominee3Name).trim());
+
+  // NSE rejects with "NOMINEE X MOBILE IS REQUIRED" for any populated
+  // nominee row that has a blank mobile, even when minor_flag = Y. The
+  // form keeps Mobile blank for minors (it's the guardian who's
+  // contactable), so when a minor has no mobile of their own we fall
+  // back to the primary holder's mobile — that's the guardian's number
+  // in practice and satisfies the NSE mandatory check.
+  const fallbackMobile = (own: any, isMinor: any): string => {
+    const minor =
+      isMinor === true ||
+      isMinor === "Y" ||
+      isMinor === "y" ||
+      isMinor === 1 ||
+      isMinor === "1";
+    const trimmed = own ? String(own).trim() : "";
+    if (trimmed) return trimmed;
+    if (minor) return String(r.indianMobileNo || "").trim();
+    return "";
+  };
 
   const payload = {
     reg_details: [
@@ -250,7 +332,7 @@ export const buildUccPayloadFromUccRegistration = async (
         nominee_1_share: r.nominee1Share,
         nominee_1_applicable: r.nominee1Share,
         nominee_1_email: r.nominee1Email,
-        nominee_1_mobile: r.nominee1Mobile,
+        nominee_1_mobile: fallbackMobile(r.nominee1Mobile, r.nominee1MinorFlag),
         nominee_1_identity_type: nom1Id.type,
         nominee_1_identity_number: nom1Id.number,
         nominee_1_minor_flag: r.nominee1MinorFlag || "N",
@@ -261,6 +343,50 @@ export const buildUccPayloadFromUccRegistration = async (
         nominee_1_city: r.nominee1City,
         nominee_1_pin: r.nominee1Pin,
         nominee_1_country: normalizeCountry(r.nominee1Country),
+
+        // Nominee 2 — only included when the user actually added one.
+        // NSE sums nominee shares and rejects totals != 100, so every
+        // nominee the user filled has to be shipped with its share here.
+        ...(hasNominee2 && {
+          nominee_2_name: r.nominee2Name,
+          nominee_2_relationship: r.nominee2Relationship,
+          nominee_2_dob: formatDobForNse(r.nominee2Dob),
+          nominee_2_share: r.nominee2Share,
+          nominee_2_applicable: r.nominee2Share,
+          nominee_2_email: r.nominee2Email,
+          nominee_2_mobile: fallbackMobile(r.nominee2Mobile, r.nominee2MinorFlag),
+          nominee_2_identity_type: nom2Id.type,
+          nominee_2_identity_number: nom2Id.number,
+          nominee_2_minor_flag: r.nominee2MinorFlag ? "Y" : "N",
+          nominee_2_guardian: r.nominee2Guardian,
+          nominee_2_address1: r.nominee2Address1,
+          nominee_2_address2: r.nominee2Address2,
+          nominee_2_address3: r.nominee2Address3,
+          nominee_2_city: r.nominee2City,
+          nominee_2_pin: r.nominee2Pin,
+          nominee_2_country: normalizeCountry(r.nominee2Country),
+        }),
+
+        // Nominee 3 — same conditional inclusion as Nominee 2.
+        ...(hasNominee3 && {
+          nominee_3_name: r.nominee3Name,
+          nominee_3_relationship: r.nominee3Relationship,
+          nominee_3_dob: formatDobForNse(r.nominee3Dob),
+          nominee_3_share: r.nominee3Share,
+          nominee_3_applicable: r.nominee3Share,
+          nominee_3_email: r.nominee3Email,
+          nominee_3_mobile: fallbackMobile(r.nominee3Mobile, r.nominee3MinorFlag),
+          nominee_3_identity_type: nom3Id.type,
+          nominee_3_identity_number: nom3Id.number,
+          nominee_3_minor_flag: r.nominee3MinorFlag ? "Y" : "N",
+          nominee_3_guardian: r.nominee3Guardian,
+          nominee_3_address1: r.nominee3Address1,
+          nominee_3_address2: r.nominee3Address2,
+          nominee_3_address3: r.nominee3Address3,
+          nominee_3_city: r.nominee3City,
+          nominee_3_pin: r.nominee3Pin,
+          nominee_3_country: normalizeCountry(r.nominee3Country),
+        }),
       },
     ],
   };
@@ -748,6 +874,11 @@ export const uccRegistration = async (
       } catch (flagErr) {
         console.error("[uccRegistration] !!! Failed to flag ucc_created:", flagErr);
       }
+
+      // Chain GET_LINK so the frontend can redirect the investor straight
+      // to the UCC activation page (productType CL_ACT, refId = client_code).
+      // Failure here is non-fatal — we already returned UCC success.
+      await attachUccActivationLink(apiResponse);
     }
 
     console.log("========== UCC Registration COMPLETED ==========");
@@ -825,10 +956,10 @@ export const nseTransaction = async (transactionDetails: any[]) => {
 // Redemption handler for NSE
 export const nseRedemption = async (transactionDetails: any[]) => {
   try {
-    console.log("========== NSE Redemption STARTED ==========");
+    console.log("========== NSE Redemption STARTED [v2: slash-unescape] ==========");
 
     const payload = {
-      transaction_details: transactionDetails
+      transaction_details: nseUnescapeSlashes(transactionDetails)
     };
 
     console.log("Redemption payload:", JSON.stringify(payload, null, 2));
@@ -872,10 +1003,10 @@ export const nseRedemption = async (transactionDetails: any[]) => {
 // Switch handler for NSE
 export const nseSwitch = async (transactionDetails: any[]) => {
   try {
-    console.log("========== NSE Switch STARTED ==========");
+    console.log("========== NSE Switch STARTED [v2: slash-unescape] ==========");
 
     const payload = {
-      transaction_details: transactionDetails
+      transaction_details: nseUnescapeSlashes(transactionDetails)
     };
 
     console.log("Switch payload:", JSON.stringify(payload, null, 2));
@@ -919,10 +1050,22 @@ export const nseSwitch = async (transactionDetails: any[]) => {
 // XSIP Registration handler for NSE
 export const nseXsipRegistration = async (regData: any[]) => {
   try {
-    console.log("========== NSE XSIP Registration STARTED ==========");
+    console.log("========== NSE XSIP Registration STARTED [v2: slash-unescape + member_code backfill] ==========");
+
+    // Backfill member_code from env so the frontend doesn't have to hardcode
+    // the broker's NSE member ID. Anything already set on the row wins.
+    // Dates and other strings are de-sanitized via the shared helper.
+    const memberCode = process.env.NSE_MEMBER_ID || '1003039';
+    const enrichedRegData = regData.map((r) => {
+      const cleaned = nseUnescapeSlashes(r ?? {});
+      return {
+        ...cleaned,
+        member_code: (cleaned as any)?.member_code || memberCode,
+      };
+    });
 
     const payload = {
-      reg_data: regData
+      reg_data: enrichedRegData
     };
 
     console.log("XSIP Registration payload:", JSON.stringify(payload, null, 2));
@@ -953,8 +1096,13 @@ export const nseXsipRegistration = async (regData: any[]) => {
 
     console.log("✅ XSIP Registration LOG SAVED");
     console.log("NSE XSIP Registration Response:", apiResponse);
+
+    // Chain GET_LINK so the frontend can redirect the investor to the
+    // XSIP authorization page (productType XSIP_REG, refId = reg_id).
+    await attachAuthLink(apiResponse, "XSIP_REG");
+
     console.log("========== NSE XSIP Registration COMPLETED ==========");
-    
+
     return apiResponse;
 
   } catch (err) {
@@ -1000,8 +1148,12 @@ export const nseSipRegistration = async (regData: any[]) => {
 
     console.log("✅ SIP Registration LOG SAVED");
     console.log("NSE SIP Registration Response:", apiResponse);
+
+    // Chain GET_LINK for SIP authorization (productType SIP_REG).
+    await attachAuthLink(apiResponse, "SIP_REG");
+
     console.log("========== NSE SIP Registration COMPLETED ==========");
-    
+
     return apiResponse;
 
   } catch (err) {
@@ -1060,10 +1212,21 @@ export const nseStpRegistration = async (regData: any[]) => {
 // SWP Registration handler for NSE
 export const nseSwpRegistration = async (regData: any[]) => {
   try {
-    console.log("========== NSE SWP Registration STARTED ==========");
+    console.log("========== NSE SWP Registration STARTED [v2: slash-unescape + member_code backfill] ==========");
+
+    // Backfill member_code from env (same pattern as XSIP) and unescape
+    // the sanitizer's "#x2F" back to "/" so NSE receives real dates.
+    const memberCode = process.env.NSE_MEMBER_ID || '1003039';
+    const enrichedRegData = regData.map((r) => {
+      const cleaned = nseUnescapeSlashes(r ?? {});
+      return {
+        ...cleaned,
+        member_code: (cleaned as any)?.member_code || memberCode,
+      };
+    });
 
     const payload = {
-      reg_data: regData
+      reg_data: enrichedRegData
     };
 
     console.log("SWP Registration payload:", JSON.stringify(payload, null, 2));
@@ -1241,6 +1404,105 @@ export const nseClientBankDetails = async (bankDtl: any[]) => {
   }
 };
 
+// After a registration (mandate / XSIP / SIP / etc.) succeeds on NSE,
+// fetch the corresponding authorization short URL via GET_LINK and
+// attach it onto reg_data[0]. Failure here must NOT fail the parent
+// flow — the registration already exists on NSE's side; without the
+// link the user can still authorize via Member Desk later.
+//
+// productType is per the NSEMF spec table:
+//   MANDATE_AUTH ⇒ Mandate authorization (refId = mandate reg_id)
+//   XSIP_REG     ⇒ XSIP registration authorization (refId = xsip reg_id)
+//   SIP_REG      ⇒ SIP registration authorization (refId = sip reg_id)
+//   STP_REG / SWP_REG / SWH_REG / PUR / RED / etc.
+const attachAuthLink = async (
+  apiResponse: any,
+  productType: string,
+) => {
+  const row = apiResponse?.reg_data?.[0];
+  const regId = row?.reg_id;
+  const regStatus: string | undefined = row?.reg_status;
+  const failed = regStatus && /FAIL/i.test(regStatus);
+  if (!regId || failed) return apiResponse;
+
+  try {
+    const linkResp = await nseGetLinkApi({
+      productType,
+      productRefId: String(regId),
+    });
+    const linkRow = Array.isArray(linkResp) ? linkResp[0] : linkResp;
+    row.auth_link = linkRow?.firstHolderLink || "";
+    row.auth_links = {
+      firstHolderLink: linkRow?.firstHolderLink || "",
+      secondHolderLink: linkRow?.secondHolderLink || "",
+      thirdHolderLink: linkRow?.thirdHolderLink || "",
+      errorMessage: linkRow?.errorMessage || "",
+    };
+    console.log(
+      `[${productType}] GET_LINK attached:`,
+      row.auth_links,
+    );
+  } catch (linkErr: any) {
+    console.error(
+      `[${productType}] GET_LINK failed (non-fatal — registration already succeeded):`,
+      linkErr?.message,
+    );
+    row.auth_link = "";
+    row.auth_links = {
+      firstHolderLink: "",
+      secondHolderLink: "",
+      thirdHolderLink: "",
+      errorMessage: linkErr?.message || "Failed to fetch authorization link",
+    };
+  }
+  return apiResponse;
+};
+
+// Backwards-compat shim — mandate handlers used to call this name.
+const attachAuthLinkToMandateResponse = (apiResponse: any) =>
+  attachAuthLink(apiResponse, "MANDATE_AUTH");
+
+// UCC variant: response shape is { reg_details: [...] } (not reg_data),
+// and the GET_LINK refId is the client_code (CL_ACT productType per spec).
+// Same fail-soft contract — we never fail UCC registration if GET_LINK
+// hiccups, since the UCC is already created on NSE's side.
+const attachUccActivationLink = async (apiResponse: any) => {
+  const row = apiResponse?.reg_details?.[0];
+  const clientCode = row?.client_code;
+  const regStatus: string | undefined = row?.reg_status;
+  const failed = regStatus && /FAIL/i.test(regStatus);
+  if (!clientCode || failed) return apiResponse;
+
+  try {
+    const linkResp = await nseGetLinkApi({
+      productType: "CL_ACT",
+      productRefId: String(clientCode).trim(),
+    });
+    const linkRow = Array.isArray(linkResp) ? linkResp[0] : linkResp;
+    row.auth_link = linkRow?.firstHolderLink || "";
+    row.auth_links = {
+      firstHolderLink: linkRow?.firstHolderLink || "",
+      secondHolderLink: linkRow?.secondHolderLink || "",
+      thirdHolderLink: linkRow?.thirdHolderLink || "",
+      errorMessage: linkRow?.errorMessage || "",
+    };
+    console.log("[CL_ACT] GET_LINK attached:", row.auth_links);
+  } catch (linkErr: any) {
+    console.error(
+      "[CL_ACT] GET_LINK failed (non-fatal — UCC already created):",
+      linkErr?.message,
+    );
+    row.auth_link = "";
+    row.auth_links = {
+      firstHolderLink: "",
+      secondHolderLink: "",
+      thirdHolderLink: "",
+      errorMessage: linkErr?.message || "Failed to fetch UCC activation link",
+    };
+  }
+  return apiResponse;
+};
+
 // Mandate Purchase handler for NSE
 export const nseMandatePurchase = async (regData: any[]) => {
   try {
@@ -1272,7 +1534,7 @@ export const nseMandatePurchase = async (regData: any[]) => {
 
     // Extract response data
     const responseData = apiResponse?.reg_data?.[0];
-    
+
     // ✅ SAVE INTO DB
     await NseMandateLog.create({
       clientCode,
@@ -1289,8 +1551,13 @@ export const nseMandatePurchase = async (regData: any[]) => {
 
     console.log("✅ Mandate Purchase LOG SAVED");
     console.log("NSE Mandate Purchase Response:", apiResponse);
+
+    // Chain GET_LINK to fetch the authorization URL the investor needs to
+    // visit (eNACH netbanking page or physical mandate form).
+    await attachAuthLinkToMandateResponse(apiResponse);
+
     console.log("========== NSE Mandate Purchase COMPLETED ==========");
-    
+
     return apiResponse;
 
   } catch (err) {
@@ -1347,8 +1614,13 @@ export const nseMandateRedemption = async (regData: any[]) => {
 
     console.log("✅ Mandate Redemption LOG SAVED");
     console.log("NSE Mandate Redemption Response:", apiResponse);
+
+    // Same GET_LINK chain as the purchase path — investor still has to
+    // authorize the mandate regardless of which transaction it backs.
+    await attachAuthLinkToMandateResponse(apiResponse);
+
     console.log("========== NSE Mandate Redemption COMPLETED ==========");
-    
+
     return apiResponse;
 
   } catch (err) {
@@ -1357,14 +1629,35 @@ export const nseMandateRedemption = async (regData: any[]) => {
   }
 };
 
+// Normalize a date string to YYYY-MM-DD (NSE reports format per spec
+// sample). Accepts DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, or YYYY/MM/DD;
+// passes through anything else unchanged so we don't mangle valid input.
+const toReportDate = (s: any): any => {
+  if (typeof s !== "string" || !s) return s;
+  const trimmed = s.trim();
+  // Already YYYY-MM-DD or YYYY/MM/DD
+  let m = trimmed.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // DD-MM-YYYY or DD/MM/YYYY
+  m = trimmed.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return trimmed;
+};
+
 // Provisional Report handler for NSE
 export const nseProvisionalReport = async (reportParams: any) => {
   try {
     console.log("========== NSE Provisional Report STARTED ==========");
 
-    console.log("Provisional Report payload:", JSON.stringify(reportParams, null, 2));
+    const normalized = {
+      ...reportParams,
+      from_date: toReportDate(reportParams?.from_date),
+      to_date: toReportDate(reportParams?.to_date),
+    };
 
-    const apiResponse = await nseProvisionalReportApi(reportParams);
+    console.log("Provisional Report payload:", JSON.stringify(normalized, null, 2));
+
+    const apiResponse = await nseProvisionalReportApi(normalized);
 
     // Extract client code from report params
     const clientCode = reportParams?.client_code || '';
@@ -1403,22 +1696,28 @@ export const nseOrderStatus = async (statusParams: any) => {
   try {
     console.log("========== NSE Order Status STARTED ==========");
 
-    console.log("Order Status payload:", JSON.stringify(statusParams, null, 2));
+    const normalized = {
+      ...statusParams,
+      from_date: toReportDate(statusParams?.from_date),
+      to_date: toReportDate(statusParams?.to_date),
+    };
 
-    const apiResponse = await nseOrderStatusApi(statusParams);
+    console.log("Order Status payload:", JSON.stringify(normalized, null, 2));
+
+    const apiResponse = await nseOrderStatusApi(normalized);
 
     // Extract client code from status params
-    const clientCode = statusParams?.client_code || '';
+    const clientCode = normalized?.client_code || '';
     const reportType = 'ORDER_STATUS';
 
     // Extract response data
     const responseData = apiResponse?.status_data?.[0];
-    
+
     // ✅ SAVE INTO DB
     await NseReportLog.create({
       reportType,
       clientCode,
-      requestPayload: statusParams,
+      requestPayload: normalized,
       responsePayload: apiResponse,
       status: responseData?.status === "SUCCESS" ? "SUCCESS" : "FAILED",
       remark: responseData?.remark || responseData?.message,
@@ -1551,13 +1850,177 @@ export const nseTwoFaReport = async (reportParams: any) => {
     console.log("✅ 2FA Report LOG SAVED");
     console.log("NSE 2FA Report Response:", apiResponse);
     console.log("========== NSE 2FA Report COMPLETED ==========");
-    
+
     return apiResponse;
 
   } catch (err) {
     console.log("NSE 2FA report error =", err);
     throw err;
   }
+};
+
+// Transaction Detail Report handler — thin wrapper around the NSE reporting
+// endpoint, plus a log row in nse_report_logs so we have an audit trail.
+// The service never throws — it returns { ok, data, errorRemark }. We always
+// persist an audit row (SUCCESS or FAILED) so operators can debug live.
+// The raw NSE response body is returned to the caller so the frontend sees
+// report_data / report_data_total / response_status / error_remark directly.
+export const nseTransactionDetailReport = async (reportParams: any) => {
+  console.log("========== NSE Transaction Detail Report STARTED ==========");
+  console.log("Transaction Detail Report payload:", JSON.stringify(reportParams, null, 2));
+
+  const { ok, httpStatus, data, errorRemark } = await nseTransactionDetailReportApi(reportParams);
+
+  const clientCode = reportParams?.client_code || '';
+  const responseStatus = data?.response_status || data?.data?.response_status || (ok ? 'S' : 'F');
+
+  // Best-effort audit row. We swallow log errors so a DB hiccup can't hide
+  // the API response from the user.
+  try {
+    await NseReportLog.create({
+      reportType: 'TRANSACTION_DETAIL',
+      clientCode,
+      requestPayload: reportParams,
+      responsePayload: data ?? { _httpStatus: httpStatus, _errorRemark: errorRemark },
+      status: ok ? 'SUCCESS' : 'FAILED',
+      remark: errorRemark,
+      reportStatus: responseStatus,
+      reportRemark: errorRemark,
+    });
+    console.log("✅ Transaction Detail Report LOG SAVED");
+  } catch (logErr) {
+    console.log("⚠️ Transaction Detail Report log write failed:", logErr);
+  }
+
+  console.log("========== NSE Transaction Detail Report COMPLETED ==========");
+
+  // Return a shape the route can turn into either a success envelope or a
+  // user-visible error envelope without having to re-inspect the upstream.
+  return { ok, httpStatus, data, errorRemark };
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// NSE Portfolio by Client Code
+//
+// The MFU side has `fn_portfolio_valuation(pan, rpt_date)` populated from RTA
+// holdings. NSE onboardees don't flow into that function yet, so this handler
+// reconstructs a portfolio-ish view from local nse_transaction_logs rows:
+//   • One row per (scheme_code, folio_no) bucket.
+//   • Invested amount = sum of SUCCESS purchase order amounts.
+//   • Scheme name / AMC / NAV looked up against the cached NSE MASTER_DOWNLOAD
+//     (1 h TTL) so we don't hammer NSE per request.
+//   • Units / current value / P&L show "--" until allotment data is available
+//     in the response payload — the frontend treats blank strings the same way
+//     it treats the MFU nulls.
+//
+// The response matches the `out_*` field names the portfolio table already
+// expects, so the UI doesn't need a second rendering path.
+// ════════════════════════════════════════════════════════════════════════════
+export const nsePortfolioByClientCode = async (clientCode: string) => {
+  const code = (clientCode || "").trim();
+  if (!code) return [];
+
+  const rows = await NseTransactionLog.findAll({
+    where: { clientCode: code },
+    order: [["id", "ASC"]],
+  });
+
+  // Load scheme master once so we can decorate scheme_name / amc / nav.
+  // Silent failure: if NSE master is unreachable we still return transaction
+  // rows — just without enriched scheme names.
+  let schemeByCode = new Map<string, NseSchemeRow>();
+  try {
+    const { rows: masterRows } = await loadSchemeMasterWithCache(false);
+    for (const r of masterRows) {
+      if (r.scheme_code) schemeByCode.set(r.scheme_code.trim().toUpperCase(), r);
+    }
+  } catch (err) {
+    console.log("[nsePortfolioByClientCode] scheme master lookup failed:", err);
+  }
+
+  type Bucket = {
+    scheme_code: string;
+    folio_no: string;
+    invested: number;
+    firstOrderDate: Date | null;
+    transactionType: string;
+    orderIds: string[];
+    anyRequestRow: any;
+  };
+  const buckets = new Map<string, Bucket>();
+
+  for (const r of rows) {
+    const row: any = (r as any).toJSON ? (r as any).toJSON() : r;
+    // Only count purchases that succeeded. Redemptions / failed orders are
+    // out of scope for a "current holdings" view.
+    const status = (row.status || "").toUpperCase();
+    const txnType = (row.transactionType || "PURCHASE").toUpperCase();
+    if (status !== "SUCCESS") continue;
+    if (txnType !== "PURCHASE") continue;
+
+    const detail =
+      row?.requestPayload?.transaction_details?.[0] ||
+      row?.requestPayload?.transaction_details ||
+      {};
+    const schemeCode = String(detail.scheme_code || detail.schemeCode || "").trim();
+    if (!schemeCode) continue;
+    const folioNo = String(detail.folio_no || detail.folioNo || "").trim() || "NEW";
+    const amount = Number(detail.amount || detail.order_amount || detail.orderAmount || 0) || 0;
+    if (amount <= 0) continue;
+
+    const key = `${schemeCode}|${folioNo}`;
+    const orderDate = row.createdAt ? new Date(row.createdAt) : null;
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.invested += amount;
+      if (orderDate && (!existing.firstOrderDate || orderDate < existing.firstOrderDate)) {
+        existing.firstOrderDate = orderDate;
+      }
+      if (row.orderId) existing.orderIds.push(row.orderId);
+    } else {
+      buckets.set(key, {
+        scheme_code: schemeCode,
+        folio_no: folioNo,
+        invested: amount,
+        firstOrderDate: orderDate,
+        transactionType: txnType,
+        orderIds: row.orderId ? [row.orderId] : [],
+        anyRequestRow: detail,
+      });
+    }
+  }
+
+  const today = new Date();
+  const result = Array.from(buckets.values()).map((b) => {
+    const master = schemeByCode.get(b.scheme_code.toUpperCase());
+    const noOfDays =
+      b.firstOrderDate
+        ? Math.max(
+            0,
+            Math.floor((today.getTime() - b.firstOrderDate.getTime()) / (1000 * 60 * 60 * 24))
+          )
+        : 0;
+    return {
+      // Match the field names the MFU portfolio table already reads.
+      out_record_typ: "P",
+      out_scheme: master?.scheme_name || b.scheme_code,
+      out_mutual_fund: master?.amc_name || "",
+      out_folio_no: b.folio_no,
+      out_current_nav: master?.nav || "",
+      out_units: "", // allotted units not yet flowing into nse_transaction_logs
+      out_no_of_days: String(noOfDays),
+      out_amount: b.invested.toFixed(2),
+      out_current_val: "", // unknown without allotted units × NAV
+      out_p_n_l: "",
+      out_abs_per: "",
+      // Extras the frontend can surface if/when it wants to:
+      scheme_code: b.scheme_code,
+      order_ids: b.orderIds,
+      source: "NSE",
+    };
+  });
+
+  return result;
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -1936,7 +2399,16 @@ export const nseMandateImageUpload = async (uploadParams: {
 export const nseMandateStatus = async (statusParams: any) => {
   try {
     console.log("========== NSE Mandate Status STARTED ==========");
-    const apiResponse = await nseMandateStatusApi(statusParams);
+    // NSEMF v1.9.6 §"Mandate Status Report API" mandates YYYY-MM-DD for
+    // both from_date and to_date. Frontend historically sent DD-MM-YYYY;
+    // normalize so either format works without breaking existing callers.
+    const normalized = {
+      ...statusParams,
+      from_date: toReportDate(statusParams?.from_date),
+      to_date: toReportDate(statusParams?.to_date),
+    };
+    console.log("NSE Mandate Status payload:", JSON.stringify(normalized, null, 2));
+    const apiResponse = await nseMandateStatusApi(normalized);
     console.log("NSE Mandate Status Response:", apiResponse);
     return apiResponse;
   } catch (err) {

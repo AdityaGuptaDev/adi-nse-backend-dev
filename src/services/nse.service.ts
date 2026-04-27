@@ -3,6 +3,7 @@ import axios from "axios";
 import configs from "../config/config";// adjust path as needed
 import environment from "../environment";
 import https from "https";
+import crypto from "crypto";
 
 
 const dotenv = require('dotenv');
@@ -10,6 +11,111 @@ const path = require('path');
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 const config = (configs as { [key: string]: any })[environment];
+
+// ══════════════════════════════════════════════════════════════
+//  NSE API — centralized base URL + dynamic Authorization builder
+// ══════════════════════════════════════════════════════════════
+//
+// Switch UAT↔Prod via .env. NSE_AUTH_TOKEN is NOT used: per NSEIL NNF
+// spec v1.9.6 §"Common Authentication", the Basic auth header must be
+// regenerated on every request because it embeds a fresh random salt+iv
+// and a freshly AES-128 encrypted password. We build it dynamically.
+//
+// Algorithm (doc pg 5-6):
+//   1. salt = random 16-byte alphanumeric (hex), iv = same
+//   2. plain_text = "<API_SECRET>|<RANDOM_NUMBER>"
+//   3. cipher = AES-128-CBC( key = MEMBER_API_KEY[:16],
+//                            iv  = iv[:16],
+//                            data = plain_text ) → base64
+//   4. encrypted_password = base64( "<iv>::<salt>::<cipher>" )
+//   5. Authorization = "Basic " + base64( "<LOGIN_ID>:<encrypted_password>" )
+//
+// UAT reference values (commented in .env for rollback only):
+//   NSE_BASE_URL = https://nseinvestuat.nseindia.com, NSE_MEMBER_ID = 1003039
+//
+// Prod headers per NSE connection-prerequisite:
+//   Accept must be BLANK (Akamai blocks Accept:application/json)
+//   Accept-Language: en-US, Referer set, no static Authorization
+
+export const NSE_BASE_URL = (process.env.NSE_BASE_URL || '').trim();
+
+/**
+ * Build a fresh `Basic …` Authorization header per NSEIL NNF v1.9.6 §Common
+ * Authentication. Called on every request because salt+iv must be random.
+ *
+ * Algorithm matches NSEInvest's official Postman collection (AesUtil):
+ *   key       = PBKDF2-SHA1( passPhrase=api_key_member,
+ *                            salt=hexDecode(salt), iterations=1000,
+ *                            keyLen=16 bytes )
+ *   ciphertext= AES-128-CBC/PKCS7( key, iv=hexDecode(iv), plain_text )
+ *   encPwd    = base64( iv + "::" + salt + "::" + base64(ciphertext) )
+ *   header    = "Basic " + base64( LOGIN_ID + ":" + encPwd )
+ *
+ * salt and iv are themselves random 128-bit values rendered as 32-char
+ * lowercase hex strings (as in the spec example).
+ */
+export function buildNseAuthHeader(): string {
+  const loginId = (process.env.NSE_LOGIN_ID || '').trim();
+  const apiSecret = (process.env.NSE_API_SECRET || '').trim();
+  const memberApiKey = (process.env.NSE_MEMBER_API_KEY || '').trim();
+
+  if (!loginId || !apiSecret || !memberApiKey) {
+    console.warn('[NSE] NSE_LOGIN_ID / NSE_API_SECRET / NSE_MEMBER_API_KEY missing — auth will fail');
+    return '';
+  }
+
+  // 128-bit random salt + iv, rendered as 32-char hex (the wire format).
+  const salt = crypto.randomBytes(16).toString('hex');
+  const iv = crypto.randomBytes(16).toString('hex');
+
+  // plain_text = "<API_SECRET>|<RANDOM>"; doc example uses 11-digit random.
+  const rand = Math.floor(Math.random() * 1e11).toString();
+  const plainText = `${apiSecret}|${rand}`;
+
+  // PBKDF2 derives the AES key from the member key + salt (SHA-1, 1000 iters,
+  // 16-byte output) — this is what CryptoJS.PBKDF2 with keySize 4 / iters 1000
+  // does in the official Postman collection.
+  const saltBuf = Buffer.from(salt, 'hex');
+  const ivBuf = Buffer.from(iv, 'hex');
+  const keyBuf = crypto.pbkdf2Sync(memberApiKey, saltBuf, 1000, 16, 'sha1');
+
+  const cipher = crypto.createCipheriv('aes-128-cbc', keyBuf, ivBuf);
+  let aesEncrypted = cipher.update(plainText, 'utf8', 'base64');
+  aesEncrypted += cipher.final('base64');
+
+  // Encrypted Password = base64(iv::salt::aes_encrypted_val)
+  const encryptedPassword = Buffer.from(`${iv}::${salt}::${aesEncrypted}`, 'utf8').toString('base64');
+
+  // Authorization = Basic base64(LOGIN_ID:encryptedPassword)
+  const basic = Buffer.from(`${loginId}:${encryptedPassword}`, 'utf8').toString('base64');
+  return `Basic ${basic}`;
+}
+
+export function getNseHeaders(): Record<string, string> {
+  const memberId = process.env.NSE_MEMBER_ID || '';
+
+  if (!NSE_BASE_URL) {
+    console.warn('[NSE] NSE_BASE_URL is not set in .env');
+  }
+  if (!memberId) {
+    console.warn('[NSE] NSE_MEMBER_ID is not set in .env');
+  }
+
+  return {
+    'memberId': memberId,
+    'Content-Type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    // NSE prod: Accept must be blank; Accept-Language en-US; Referer present.
+    'Accept': '',
+    'Accept-Language': 'en-US',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    // Built fresh per request — salt+iv must be random per the NSE spec.
+    'Authorization': buildNseAuthHeader(),
+    'Referer': process.env.NSE_REFERER || '',
+    'Cookie': process.env.NSE_COOKIE || '',
+  };
+}
 
 
 
@@ -131,29 +237,18 @@ export async function nseUccRegistration(payload: any): Promise<any> {
   console.log("========== nseUccRegistration() STARTED ==========");
   console.log("Preparing UCC registration request");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/CLIENTCOMMON183';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/CLIENTCOMMON183
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/CLIENTCOMMON183`;
+  const headers = getNseHeaders();
 
   console.log("Request URL:", url);
-  console.log("Member ID:", memberId);
-  console.log("Auth Token Available:", !!authToken);
+  console.log("Member ID:", headers.memberId);
+  console.log("Auth Token Available:", !!headers.Authorization);
 
-  if (!url) {
-    console.error("❌ ERROR: NSE UCC URL missing");
-    throw new Error("NSE UCC URL is not configured");
+  if (!NSE_BASE_URL) {
+    console.error("❌ ERROR: NSE_BASE_URL missing");
+    throw new Error("NSE_BASE_URL is not configured");
   }
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
 
   console.log("Request Headers:", {
     ...headers,
@@ -233,29 +328,18 @@ export async function nseTransactionApi(payload: any): Promise<any> {
   console.log("========== nseTransactionApi() STARTED ==========");
   console.log("Preparing NSE transaction request");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/NORMAL';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/NORMAL
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/transaction/NORMAL`;
+  const headers = getNseHeaders();
 
   console.log("Request URL:", url);
-  console.log("Member ID:", memberId);
-  console.log("Auth Token Available:", !!authToken);
+  console.log("Member ID:", headers.memberId);
+  console.log("Auth Token Available:", !!headers.Authorization);
 
-  if (!url) {
-    console.error("❌ ERROR: NSE Transaction URL missing");
-    throw new Error("NSE Transaction URL is not configured");
+  if (!NSE_BASE_URL) {
+    console.error("❌ ERROR: NSE_BASE_URL missing");
+    throw new Error("NSE_BASE_URL is not configured");
   }
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
 
   console.log("Request Headers:", {
     ...headers,
@@ -311,24 +395,13 @@ export async function nseRedemptionApi(payload: any): Promise<any> {
   console.log("========== nseRedemptionApi() STARTED ==========");
   console.log("Preparing NSE redemption request");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/NORMAL';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/NORMAL
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/transaction/NORMAL`;
+  const headers = getNseHeaders();
 
   console.log("Request URL:", url);
-  console.log("Member ID:", memberId);
-  console.log("Auth Token Available:", !!authToken);
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  console.log("Member ID:", headers.memberId);
+  console.log("Auth Token Available:", !!headers.Authorization);
 
   console.log("Request Headers:", {
     ...headers,
@@ -366,20 +439,9 @@ export async function nseRedemptionApi(payload: any): Promise<any> {
 export async function nseSwitchApi(payload: any): Promise<any> {
   console.log("========== nseSwitchApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/SWITCH';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/SWITCH
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/transaction/SWITCH`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -396,20 +458,9 @@ export async function nseSwitchApi(payload: any): Promise<any> {
 export async function nseXsipRegistrationApi(payload: any): Promise<any> {
   console.log("========== nseXsipRegistrationApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/XSIP';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/XSIP
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/product/XSIP`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -426,20 +477,9 @@ export async function nseXsipRegistrationApi(payload: any): Promise<any> {
 export async function nseSipRegistrationApi(payload: any): Promise<any> {
   console.log("========== nseSipRegistrationApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/SIP';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/SIP
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/product/SIP`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -456,20 +496,9 @@ export async function nseSipRegistrationApi(payload: any): Promise<any> {
 export async function nseStpRegistrationApi(payload: any): Promise<any> {
   console.log("========== nseStpRegistrationApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/STP';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/STP
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/product/STP`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -486,20 +515,9 @@ export async function nseStpRegistrationApi(payload: any): Promise<any> {
 export async function nseSwpRegistrationApi(payload: any): Promise<any> {
   console.log("========== nseSwpRegistrationApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/SWP';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/SWP
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/product/SWP`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -516,20 +534,9 @@ export async function nseSwpRegistrationApi(payload: any): Promise<any> {
 export async function nseOrderCancellationApi(payload: any): Promise<any> {
   console.log("========== nseOrderCancellationApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/CANCEL';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/transaction/CANCEL
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/transaction/CANCEL`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -546,20 +553,9 @@ export async function nseOrderCancellationApi(payload: any): Promise<any> {
 export async function nseStpCancellationApi(payload: any): Promise<any> {
   console.log("========== nseStpCancellationApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/STP/CANCEL';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/STP/CANCEL
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/product/STP/CANCEL`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -576,20 +572,9 @@ export async function nseStpCancellationApi(payload: any): Promise<any> {
 export async function nseClientBankDetailsApi(payload: any): Promise<any> {
   console.log("========== nseClientBankDetailsApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/BANKDTL';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/BANKDTL
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/BANKDTL`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -606,20 +591,9 @@ export async function nseClientBankDetailsApi(payload: any): Promise<any> {
 export async function nseMandatePurchaseApi(payload: any): Promise<any> {
   console.log("========== nseMandatePurchaseApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/product/MANDATE`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -636,20 +610,9 @@ export async function nseMandatePurchaseApi(payload: any): Promise<any> {
 export async function nseMandateRedemptionApi(payload: any): Promise<any> {
   console.log("========== nseMandateRedemptionApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/product/MANDATE
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/product/MANDATE`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -666,20 +629,11 @@ export async function nseMandateRedemptionApi(payload: any): Promise<any> {
 export async function nseProvisionalReportApi(payload: any): Promise<any> {
   console.log("========== nseProvisionalReportApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/reporting/provisional';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // Per NSEMF API spec v1.9.6 §"Order Status Reports API" — provisional
+  // orders feed. Earlier code used /reporting/provisional which 404s on
+  // prod; canonical path is /reports/PROV_ORDERS.
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/PROV_ORDERS`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -696,20 +650,11 @@ export async function nseProvisionalReportApi(payload: any): Promise<any> {
 export async function nseOrderStatusApi(payload: any): Promise<any> {
   console.log("========== nseOrderStatusApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/reporting/order-status';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // Per NSEMF API spec v1.9.6 §"Order Status Reports API" — order-status
+  // feed. Earlier code used /reporting/order-status which 404s on prod;
+  // canonical path is /reports/ORDER_STATUS.
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/ORDER_STATUS`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -726,20 +671,9 @@ export async function nseOrderStatusApi(payload: any): Promise<any> {
 export async function nseBankElogUploadApi(payload: any): Promise<any> {
   console.log("========== nseBankElogUploadApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/BANK/ELOG/UPLOAD';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/BANK/ELOG/UPLOAD
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/BANK/ELOG/UPLOAD`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -756,20 +690,10 @@ export async function nseBankElogUploadApi(payload: any): Promise<any> {
 export async function nseMemberFundAllocationApi(payload: any): Promise<any> {
   console.log("========== nseMemberFundAllocationApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/reporting/member-fund-allocation';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // Per NSEMF API spec v1.9.6 §"Member fund allocation order wise Report".
+  // Earlier code used /reporting/member-fund-allocation which 404s on prod.
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/MEMBER_FUND_ALLOCATION/ORDER_WISE`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -786,20 +710,10 @@ export async function nseMemberFundAllocationApi(payload: any): Promise<any> {
 export async function nseTwoFaReportApi(payload: any): Promise<any> {
   console.log("========== nseTwoFaReportApi() STARTED ==========");
 
-  const url = 'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/reporting/2fa-report';
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-
-  const headers = {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
+  // Per NSEMF API spec v1.9.6 §"2FA Report API". Earlier code used
+  // /reporting/2fa-report which 404s on prod; canonical path is /reports/2fa.
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/2fa`;
+  const headers = getNseHeaders();
 
   try {
     console.log("Request Body:", JSON.stringify(payload, null, 2));
@@ -812,26 +726,66 @@ export async function nseTwoFaReportApi(payload: any): Promise<any> {
   }
 }
 
+// NSE Transaction Detail Report API service function
+// Endpoint per NSEIL MF Service System Protocol v1.9.6, section "Transaction Detail Report API".
+// Date gap between from_date/to_date: 7 days max (3 days if date_type === LAST_ACTIVITY_DATE).
+// order_id / systematic_reg_id accept up to 50 comma-separated ids and override other filters.
+//
+// Returns { ok: boolean, data, errorRemark } instead of throwing on upstream
+// failure so the handler can persist a FAILED log row and the route can
+// surface a clear error to the frontend instead of a generic 500.
+export async function nseTransactionDetailReportApi(payload: any): Promise<{
+  ok: boolean;
+  httpStatus: number | null;
+  data: any;
+  errorRemark: string;
+}> {
+  console.log("========== nseTransactionDetailReportApi() STARTED ==========");
+
+  // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/reports/TRANSACTION_DETAIL_REPORT
+  const url = `${NSE_BASE_URL}/nsemfdesk/api/v2/reports/TRANSACTION_DETAIL_REPORT`;
+  const headers = getNseHeaders();
+
+  try {
+    console.log("Request Body:", JSON.stringify(payload, null, 2));
+    // 60s hard timeout — NSE UAT can hang on cold paths; without this the
+    // express response never comes back and the frontend shows "no response".
+    const response = await axios.post(url, payload, {
+      headers,
+      timeout: 60000,
+      validateStatus: () => true, // we inspect the body + status ourselves
+    });
+    console.log("NSE Transaction Detail Report HTTP Status:", response.status);
+    console.log("NSE Transaction Detail Report Response:", response.data);
+
+    const body = response.data;
+    const ok = response.status >= 200 && response.status < 300
+      && (body?.response_status === "S" || body?.data?.response_status === "S");
+    const errorRemark = body?.error_remark
+      || body?.data?.error_remark
+      || body?.message
+      || (ok ? "" : `NSE returned HTTP ${response.status}`);
+
+    return { ok, httpStatus: response.status, data: body, errorRemark };
+  } catch (error: any) {
+    const axiosMsg = error?.response?.data?.message
+      || error?.response?.data?.error_remark
+      || error?.message
+      || "NSE transaction detail report request failed";
+    console.error("NSE transaction detail report error:", error?.response?.data || error?.message);
+    return {
+      ok: false,
+      httpStatus: error?.response?.status ?? null,
+      data: error?.response?.data ?? null,
+      errorRemark: axiosMsg,
+    };
+  }
+}
+
 // ══════════════════════════════════════════════════════════════
 //  NEW SERVICE FUNCTIONS FOR COMPLETE NSE MODULE
 // ══════════════════════════════════════════════════════════════
-
-const NSE_BASE_URL = 'https://nseinvestuat.nseindia.com';
-
-function getNseHeaders() {
-  const memberId = process.env.NSE_MEMBER_ID || '1003039';
-  const authToken = process.env.NSE_AUTH_TOKEN || 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=';
-  return {
-    'memberId': memberId,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Authorization': authToken,
-    'Cookie': process.env.NSE_COOKIE || ''
-  };
-}
+// (NSE_BASE_URL + getNseHeaders are defined at the top of this file.)
 
 // Scheme Master Download API
 export async function nseScheMasterDownloadApi(fileType: string): Promise<any> {

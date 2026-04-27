@@ -91,6 +91,7 @@ import { UserType } from "./usertype-model";
 import { mobileToAccount, partnerMobileToAccount } from "../decentro/decentro-handler";
 import { date } from "zod";
 import { InvestorRegistration } from "../kyc-flow/user_basic_detail-model";
+import { UCCRegistration } from "../nse/ucc-registration-model";
 
 const router = express.Router();
 
@@ -1120,12 +1121,22 @@ router.post("/verify-otp", authRateLimit, async (req: any, res: any) => {
     console.log("User finalized:", parentData);
 
 
-    const finalUserTypeId = source === "partner-add-investor" ? 2 : user.userTypeId;
+    const isPartnerAddInvestor = source === "partner-add-investor";
+    const isAdminAddInvestor = source === "admin-add-investor";
+    const finalUserTypeId =
+      isPartnerAddInvestor || isAdminAddInvestor ? 2 : user.userTypeId;
+
+    // For admin-add-investor we never have a partner, so partner_id must be NULL
+    // (the column is INTEGER — sending "" would fail with an integer-cast error
+    // and surface to the client as a generic 500 / "Something went wrong").
+    const partnerIdForFinalization = isAdminAddInvestor
+      ? null
+      : (parentData?.userId || "");
 
     await handleUserFinalization(
       finalUserTypeId,
       savedUser,
-      parentData?.userId || "",
+      partnerIdForFinalization,
       t
     );
 
@@ -1152,15 +1163,23 @@ router.post("/verify-otp", authRateLimit, async (req: any, res: any) => {
 });
 
 
-async function handleUserFinalization(userTypeId: any, user: any, partnerId: string, t: any) {
+async function handleUserFinalization(userTypeId: any, user: any, partnerId: string | number | null, t: any) {
   if (userTypeId === USER_TYPE.InvestorRegistration) {
+
+    // partner_id column is INTEGER — coerce empty / non-numeric values to null
+    // so Postgres doesn't reject the insert when an admin (no partner) creates
+    // an investor.
+    const partnerIdValue =
+      partnerId === null || partnerId === undefined || partnerId === ""
+        ? null
+        : Number(partnerId);
 
     const investor = await addUserInvestorData(
       {
         reg_mobile: user.mobile,
         user_id: parseInt(user.id),
         user_type: USER_TYPE.InvestorRegistration,
-        partner_id: partnerId,
+        partner_id: Number.isNaN(partnerIdValue) ? null : partnerIdValue,
       },
       t
     );
@@ -2057,6 +2076,78 @@ router.get("/userByInvestorId/:investorId", dataReadRateLimit, tokenMiddleWare, 
     // sendEncryptedResponse(res,  user, "got user by id");
   } catch (error) {
     ErrorLogger.write({ type: "userByInvestorId error", error });
+    serverError(res, error);
+  }
+});
+
+// Resolve an investor's display name + PAN by mobile number. Used by the
+// dashboard greeting/header when USER_DATA does not yet have these fields
+// (e.g. partner-added investors who completed UCC but whose User row was
+// never refreshed). Looks up both investor_registration (reg_mobile) and
+// ucc_registration (indianMobileNo) and returns the best match plus the
+// raw rows for the caller.
+router.get("/profile-by-mobile/:mobile", dataReadRateLimit, async (req, res) => {
+  try {
+    const { mobile } = req.params;
+
+    if (!mobile) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "mobile is required" },
+        "profile-by-mobile"
+      );
+    }
+
+    const investor: any = await InvestorRegistration.findOne({
+      where: { reg_mobile: mobile, isDelete: false },
+    });
+
+    const ucc: any = await UCCRegistration.findOne({
+      where: { indianMobileNo: mobile },
+    });
+
+    const uccName = ucc
+      ? [ucc.primaryHolderFirstName, ucc.primaryHolderMiddleName, ucc.primaryHolderLastName]
+          .filter((p: string | null | undefined) => p && String(p).trim() !== "")
+          .join(" ")
+          .trim()
+      : "";
+
+    // Decentro creates investor rows with a "TEMPORARY INVESTOR" placeholder
+    // name that must not win over a real UCC primary-holder name.
+    const isRealName = (s: any) => {
+      const v = (s ?? "").toString().trim();
+      if (!v) return false;
+      return !/^temporary\s*investor$/i.test(v);
+    };
+
+    const resolvedName =
+      (isRealName(investor?.name) && String(investor.name).trim()) ||
+      (isRealName(investor?.signzy_user_name) && String(investor.signzy_user_name).trim()) ||
+      uccName ||
+      "";
+
+    const resolvedPan =
+      (investor?.pan_no && String(investor.pan_no).trim()) ||
+      (ucc?.primaryHolderPan && String(ucc.primaryHolderPan).trim()) ||
+      "";
+
+    return sendEncryptedResponse(
+      res,
+      {
+        status: "S",
+        remark: "Profile fetched successfully",
+        data: {
+          name: resolvedName,
+          pan: resolvedPan,
+          investor: investor || null,
+          ucc: ucc || null,
+        },
+      },
+      "profile-by-mobile"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "profile-by-mobile error", error });
     serverError(res, error);
   }
 });

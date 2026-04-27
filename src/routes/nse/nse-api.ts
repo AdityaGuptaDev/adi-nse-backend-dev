@@ -19,6 +19,8 @@ import {
   nseBankElogUpload,
   nseMemberFundAllocation,
   nseTwoFaReport,
+  nseTransactionDetailReport,
+  nsePortfolioByClientCode,
   saveUCCStep0,
   saveUCCStep1,
   saveUCCStep2,
@@ -52,6 +54,7 @@ import { apiRequest } from "../../services/apirequest.service";
 import { AxiosRequestConfig } from "axios";
 import { financialRateLimit, exportRateLimit } from "../../middlewares/rateLimit";
 import { UCCRegistration } from "./ucc-registration-model";
+import { NSE_BASE_URL, getNseHeaders } from "../../services/nse.service";
 
 const router = express.Router();
 const axios = require('axios');
@@ -170,23 +173,15 @@ router.post('/ucc', financialRateLimit, async (req, res) => {
             ]
         };
 
-        // Fix the headers - especially the Accept header
-        const headers = {
-            'memberId': process.env.NSE_MEMBER_ID || '1003039',
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',  // Changed from '/' to 'application/json'
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Authorization': 'Basic QURNSU46TmprMFptVTJaR016TURJd05EUTFPVFU0WXpkbFpqQTROamc1TlRaak4yRTZPak14T1dSbFpqTTVPV1kyT0RJME0yRmtNV1V6TmpObU1ETm1ZVEV4T1dVd09qcGhTMDVNUzFsNE55OXlOVGxHYm5STmVWZG5UeXRuZDBOamQwbFBkbWh3WTNOUGJ6QkZjRVZEY25JMFZIWk1lVWswVnpsbFRWZExjSGxoYlN0dVp6Y3g=',
-            'Cookie': process.env.NSE_COOKIE || ''  // Make sure this cookie is valid
-        };
+        // Headers + base URL come from the centralized helper. UAT vs Prod is
+        // controlled entirely via .env (NSE_BASE_URL, NSE_MEMBER_ID,
+        // NSE_AUTH_TOKEN, NSE_REFERER, NSE_COOKIE). Per NSE prod connection
+        // spec: Accept must be blank, Accept-Language: en-US, Referer set.
+        const headers = getNseHeaders();
 
-        // Also, look at the response headers from the error - the server expects 'application/json'
-        // The response headers show: 'accept: application/json'
-
+        // UAT URL (reference): https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/CLIENTCOMMON183
         const response = await axios.post(
-            'https://nseinvestuat.nseindia.com/nsemfdesk/api/v2/registration/CLIENTCOMMON183',
+            `${NSE_BASE_URL}/nsemfdesk/api/v2/registration/CLIENTCOMMON183`,
             payload,
             { headers }
         );
@@ -738,6 +733,74 @@ router.post("/2fa-report", exportRateLimit, async (req, res) => {
     );
   } catch (error) {
     ErrorLogger.write({ type: "nse 2fa report error :- ", error });
+    serverError(res, error);
+  }
+});
+
+// NSE Portfolio by Client Code — reconstructs a portfolio-shaped list from
+// local nse_transaction_logs rows for UCC-only investors (who don't have a
+// CAN row in the MFU-side fn_portfolio_valuation). Returns the same `out_*`
+// fields the MFU portfolio table consumes, so the UI doesn't branch.
+router.get("/portfolio/by-client-code/:client_code", async (req, res) => {
+  try {
+    const clientCode = String(req.params.client_code || "").trim();
+    if (!clientCode) {
+      return sendEncryptedResponse(
+        res,
+        { status: "F", remark: "client_code is required", data: [] },
+        "nse-portfolio-by-client-code"
+      );
+    }
+
+    const rows = await nsePortfolioByClientCode(clientCode);
+
+    sendEncryptedResponse(
+      res,
+      {
+        status: "S",
+        remark: "NSE portfolio fetched",
+        data: rows,
+        count: rows.length,
+      },
+      "nse-portfolio-by-client-code"
+    );
+  } catch (error) {
+    ErrorLogger.write({ type: "nse portfolio by-client-code error :- ", error });
+    serverError(res, error);
+  }
+});
+
+// NSE Transaction Detail Report API
+// Proxies NSE `/nsemfdesk/api/v2/reports/TRANSACTION_DETAIL_REPORT`. Spec limits:
+//   • from_date / to_date mandatory, DD-MM-YYYY, 7-day window (3 days if
+//     date_type = LAST_ACTIVITY_DATE).
+//   • order_id / systematic_reg_id: comma-separated, up to 50 ids; when
+//     supplied they override the other optional filters.
+router.post("/transaction-detail-report", exportRateLimit, async (req, res) => {
+  try {
+    console.log("NSE transaction detail report request received", req.body);
+
+    const { ok, httpStatus, data, errorRemark } = await nseTransactionDetailReport(req.body);
+
+    // Always return a 200 with a clear envelope — frontend reads status/remark
+    // to show a toast. Avoids relying on `serverError` for upstream failures,
+    // which loses the NSE error message inside a generic 500 body.
+    sendEncryptedResponse(
+      res,
+      {
+        status: ok ? "S" : "F",
+        remark: ok
+          ? "Transaction detail report processed successfully"
+          : errorRemark || `NSE request failed (HTTP ${httpStatus ?? "n/a"})`,
+        data: data ?? null,
+        http_status: httpStatus ?? null,
+      },
+      "transaction-detail-report"
+    );
+  } catch (error) {
+    // Only unexpected crashes reach here — the service/handler swallow upstream
+    // failures. Keep the 500 path as a last-resort safety net.
+    ErrorLogger.write({ type: "nse transaction detail report error :- ", error });
     serverError(res, error);
   }
 });

@@ -373,26 +373,58 @@ router.post("/txn-history", dataReadRateLimit, tokenMiddleWare, async (req, res)
 router.post("/txn-normal", financialRateLimit, tokenMiddleWare, async (req, res) => {
     try {
         const body = req.body;
-        //console.log(body)
+
+        // Diagnostic: dump the exact payload going to MFU. When MFU rejects a
+        // Lumpsum (UPI / NetBanking / RTGS) we can correlate the server log
+        // with the client report.
+        console.log(
+            "[txn-normal] >>> payload",
+            JSON.stringify(
+                { investor_id: body?.investor_id, isin: body?.isin, transaction: body?.transaction },
+                null,
+                2
+            )
+        );
+
         let response: any = await ApiFinTechNormalTxnService(body?.transaction);
 
-        console.log("Transaction Response :- ", response?.respHeader?.respFlag, response?.respHeader?.errorCode);
+        console.log("[txn-normal] <<< MFU response", typeof response === "string" ? response : JSON.stringify(response));
 
-        //const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-        //console.log('Client IP:', ip);
+        // ApiFinTechNormalTxnService returns the decrypted MFU JSON as a
+        // STRING. Parse it once here so we can both log a structured success
+        // signal and short-circuit the createTransaction hook on rejections.
+        let parsed: any = response;
+        if (typeof response === "string") {
+            try { parsed = JSON.parse(response); } catch { parsed = null; }
+        }
+
         if (
-            response?.respHeader?.respFlag === "S" &&
-            !response?.respHeader?.errorCode
+            parsed?.respHeader?.respFlag === "S" &&
+            !parsed?.respHeader?.errorCode
         ) {
             await createTransaction(body.transaction, body?.investor_id, body?.isin);
         }
-        //await createTransaction(body.transaction, body?.investor_id, body?.isin);
 
         sendEncryptedResponse(res, response, "ApiFinTechNormalTxnService");
-    } catch (error) {
+    } catch (error: any) {
         ErrorLogger.write({ type: "fetch ApiFinTechNormalTxnService error", error });
+        // axios throws for non-2xx upstream responses with `error.response`
+        // containing the payload MFU returned. Forward whatever specific
+        // message we can pull out so the frontend isn't left with the
+        // generic 500 -> "Something went wrong" mapping.
+        const upstream = error?.response?.data;
+        const upstreamStr =
+            (typeof upstream === "string" && upstream) ||
+            upstream?.respHeader?.errorMsg ||
+            upstream?.respHeader?.errorDesc ||
+            upstream?.message ||
+            error?.message ||
+            "";
+        console.error("[txn-normal] upstream error:", upstreamStr, "axios status:", error?.response?.status);
+        if (upstreamStr) {
+            return res.status(400).send(upstreamStr);
+        }
         serverError(res, error);
-
     }
 });
 

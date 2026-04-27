@@ -23,7 +23,8 @@ router.post("/addfundExploreCardData", dataWriteRateLimit, tokenMiddleWare, asyn
         let passObj = {
             investor_id: body.investor_id,
             scheme_id: body.scheme_id,
-            user_id: body.user_id
+            user_id: body.user_id,
+            trans_type: body.trans_type,
         }
 
         let findData = await findInvestorCartData(passObj);
@@ -32,6 +33,18 @@ router.post("/addfundExploreCardData", dataWriteRateLimit, tokenMiddleWare, asyn
         if (findData) {
             throw other(res, 'This fund is already in your cart.')
         }
+
+        // Several InvestorCart columns are declared INTEGER in the model but
+        // upstream callers (SIP page) send single-letter codes like
+        // tx_vol_type: "A". MySQL strict mode rejects non-numeric strings on
+        // INT columns and the whole insert fails with a generic 500. Coerce
+        // these fields to a number when possible, otherwise null, so the
+        // insert never blows up because of a value-shape mismatch.
+        const toIntOrNull = (v: any): number | null => {
+            if (v === null || v === undefined || v === "") return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        };
 
         const payload = {
             user_id: body.user_id,
@@ -53,16 +66,16 @@ router.post("/addfundExploreCardData", dataWriteRateLimit, tokenMiddleWare, asyn
             SchemeCode: body.SchemeCode || null,
             toSchemeCode: body.toSchemeCode || null,
             frequency: body.frequency || null,
-            day: body.day || null,
-            start_month: body.start_month || null,
-            start_year: body.start_year || null,
-            end_month: body.end_month || null,
-            end_year: body.end_year || null,
-            rta_amc_code: body.rta_amc_code || null,
-            rta_sch_code: body.rta_sch_code || null,
-            out_rta_sch_code: body.out_rta_sch_code || null,
-            tx_vol_type: body.tx_vol_type || null,
-            vol: body.vol || null,
+            day: toIntOrNull(body.day),
+            start_month: toIntOrNull(body.start_month),
+            start_year: toIntOrNull(body.start_year),
+            end_month: toIntOrNull(body.end_month),
+            end_year: toIntOrNull(body.end_year),
+            rta_amc_code: toIntOrNull(body.rta_amc_code),
+            rta_sch_code: toIntOrNull(body.rta_sch_code),
+            out_rta_sch_code: toIntOrNull(body.out_rta_sch_code),
+            tx_vol_type: toIntOrNull(body.tx_vol_type),
+            vol: toIntOrNull(body.vol),
 
         };
         const result = await addInvestorCartData(payload);
